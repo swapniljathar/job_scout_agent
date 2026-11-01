@@ -99,6 +99,66 @@
       background-color: #E5E7EB;
       color: #111827;
     }
+
+    /* ========================================================
+       Motion & smoothness (expo-out easing, entrance/exit animations)
+       ======================================================== */
+    :root {
+      --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    }
+    html { scroll-behavior: smooth; }
+    body { text-rendering: optimizeLegibility; }
+    body:has(#role-drawer:not(.hidden)), body:has(#auth-modal:not(.hidden)) { overflow: hidden; }
+
+    @keyframes js-fade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes js-fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    @keyframes js-slide-in { from { transform: translateX(32px); opacity: 0; } to { transform: none; opacity: 1; } }
+    @keyframes js-slide-out { from { transform: none; opacity: 1; } to { transform: translateX(32px); opacity: 0; } }
+    @keyframes js-pop-in { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
+    @keyframes js-pop-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(4px) scale(0.98); } }
+
+    /* Tab switch: content fades up, then cards/rows stagger in */
+    .tab-content.is-entering { animation: js-fade-up 420ms var(--ease-out-expo) both; }
+    .tab-content.is-entering :is(#pastel-matches-grid, #detailed-queue-container, #lusha-contacts-grid, [id^="kanban-col-"]) > *,
+    .tab-content.is-entering tbody > tr {
+      animation: js-fade-up 520ms var(--ease-out-expo) both;
+    }
+    .tab-content.is-entering :is(#pastel-matches-grid, #detailed-queue-container, #lusha-contacts-grid, [id^="kanban-col-"]) > *:nth-child(2),
+    .tab-content.is-entering tbody > tr:nth-child(2) { animation-delay: 40ms; }
+    .tab-content.is-entering :is(#pastel-matches-grid, #detailed-queue-container, #lusha-contacts-grid, [id^="kanban-col-"]) > *:nth-child(3),
+    .tab-content.is-entering tbody > tr:nth-child(3) { animation-delay: 80ms; }
+    .tab-content.is-entering :is(#pastel-matches-grid, #detailed-queue-container, #lusha-contacts-grid, [id^="kanban-col-"]) > *:nth-child(4),
+    .tab-content.is-entering tbody > tr:nth-child(4) { animation-delay: 120ms; }
+    .tab-content.is-entering :is(#pastel-matches-grid, #detailed-queue-container, #lusha-contacts-grid, [id^="kanban-col-"]) > *:nth-child(n+5),
+    .tab-content.is-entering tbody > tr:nth-child(n+5) { animation-delay: 160ms; }
+
+    /* Drawer sub-tabs */
+    .dtab-content:not(.hidden) { animation: js-fade 260ms var(--ease-out-expo) both; }
+
+    /* Drawer & modal: animated open/close */
+    #role-drawer:not(.hidden) .drawer-overlay,
+    #auth-modal:not(.hidden) .modal-backdrop { animation: js-fade 240ms var(--ease-out-expo) both; }
+    #role-drawer:not(.hidden) .drawer-panel { animation: js-slide-in 460ms var(--ease-out-expo) both; }
+    #auth-modal:not(.hidden) .modal-box { animation: js-pop-in 360ms var(--ease-out-expo) both; }
+    #role-drawer.is-closing .drawer-overlay,
+    #auth-modal.is-closing .modal-backdrop { animation: js-fade 200ms var(--ease-in-out) reverse both; }
+    #role-drawer.is-closing .drawer-panel { animation: js-slide-out 220ms var(--ease-in-out) both; }
+    #auth-modal.is-closing .modal-box { animation: js-pop-out 180ms var(--ease-in-out) both; }
+
+    /* Tactile buttons & visible keyboard focus */
+    button { -webkit-tap-highlight-color: transparent; }
+    button.smooth-transition:active:not(:disabled) { transform: scale(0.97); transition-duration: 80ms; }
+    :is(button, a, input, textarea, select, [role="button"]):focus-visible {
+      outline: 2px solid #111827;
+      outline-offset: 2px;
+    }
+    #toast { transition-timing-function: var(--ease-out-expo); transition-duration: 320ms; }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 1ms !important; }
+    }
   </style>
 </head>
 <body class="min-h-screen flex flex-col bg-[#FAFAFA] text-gray-900 antialiased selection:bg-gray-200">
@@ -582,6 +642,12 @@
         </div>
       </div>
 
+      <!-- Import from Document Link -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        <input id="resume-link-input" type="url" placeholder="Or paste a Google Docs / Drive / Dropbox / PDF link…" onkeydown="if (event.key === 'Enter') importResumeFromLink()" class="flex-1 min-w-0 px-4 py-2 rounded-full border border-gray-300 bg-white text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400">
+        <button onclick="importResumeFromLink()" class="px-4 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 text-xs font-medium smooth-transition shadow-2xs shrink-0">Import from Link</button>
+      </div>
+
       <!-- Master Resume Editor & Skills Matrix -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
@@ -702,10 +768,10 @@
   <!-- ======================================================== -->
   <div id="role-drawer" class="fixed inset-0 z-50 hidden flex items-center justify-end">
     <!-- Backdrop -->
-    <div onclick="closeDrawer()" class="absolute inset-0 drawer-overlay smooth-transition"></div>
+    <div onclick="closeDrawer()" class="absolute inset-0 drawer-overlay"></div>
     
     <!-- Drawer Panel (Wide & Comfortable) -->
-    <div class="relative w-full max-w-3xl h-full bg-white border-l border-gray-200 shadow-2xl flex flex-col z-10 custom-scroll overflow-y-auto">
+    <div class="drawer-panel relative w-full max-w-3xl h-full bg-white border-l border-gray-200 shadow-2xl flex flex-col z-10 custom-scroll overflow-y-auto">
       
       <!-- Drawer Header -->
       <div class="p-5 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-md z-20 space-y-3">
@@ -1001,10 +1067,10 @@
   <!-- ======================================================== -->
   <div id="auth-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
     <!-- Backdrop -->
-    <div onclick="closeAuthModal()" class="absolute inset-0 bg-gray-900/40 backdrop-blur-xs smooth-transition"></div>
+    <div onclick="closeAuthModal()" class="modal-backdrop absolute inset-0 bg-gray-900/40 backdrop-blur-xs"></div>
 
     <!-- Modal Box -->
-    <div class="relative w-full max-w-md bg-white rounded-3xl border border-gray-200 shadow-2xl p-6 z-10 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+    <div class="modal-box relative w-full max-w-md bg-white rounded-3xl border border-gray-200 shadow-2xl p-6 z-10 space-y-5">
       
       <!-- Modal Header -->
       <div class="flex items-start justify-between">
@@ -1232,11 +1298,27 @@
     function openAuthModal(mode = 'signin') {
       currentAuthMode = mode;
       toggleAuthMode(mode);
-      document.getElementById('auth-modal').classList.remove('hidden');
+      showOverlay(document.getElementById('auth-modal'));
+    }
+
+    // Plays the exit animation before hiding an overlay (drawer / modal)
+    function hideWithAnimation(el) {
+      if (!el || el.classList.contains('hidden') || el.classList.contains('is-closing')) return;
+      el.classList.add('is-closing');
+      el._hideTimer = setTimeout(() => {
+        el.classList.add('hidden');
+        el.classList.remove('is-closing');
+      }, 220);
+    }
+
+    // Shows an overlay, cancelling an exit animation that is still running
+    function showOverlay(el) {
+      clearTimeout(el._hideTimer);
+      el.classList.remove('is-closing', 'hidden');
     }
 
     function closeAuthModal() {
-      document.getElementById('auth-modal').classList.add('hidden');
+      hideWithAnimation(document.getElementById('auth-modal'));
     }
 
     function toggleAuthMode(mode) {
@@ -1697,19 +1779,56 @@
       showToast("Downloaded master_resume_swapnil_jathar.md");
     }
 
-    function handleResumeFileUpload(event) {
-      const file = event.target.files && event.target.files[0];
-      if (!file) return;
+    // Resume import: server-side Docling parsing via /api/resume/parse, local text fallback for static hosting
+    function applyParsedResume(text, label) {
+      currentMasterResume = text;
+      localStorage.setItem("job_scout_master_resume", currentMasterResume);
+      initMasterResume();
+      showToast(label);
+    }
 
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        const text = e.target.result;
-        currentMasterResume = text;
-        localStorage.setItem("job_scout_master_resume", currentMasterResume);
-        initMasterResume();
-        showToast(`Loaded ${file.name} (${file.size} bytes) as Master Resume!`);
-      };
-      reader.readAsText(file);
+    async function postResumeParse(body, query, contentType) {
+      const res = await fetch('/api/resume/parse' + query, { method: 'POST', headers: { 'Content-Type': contentType }, body });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Parser returned HTTP ${res.status}`);
+      return data;
+    }
+
+    async function importResumeFile(file) {
+      if (!file) return;
+      showToast(`Parsing ${file.name}…`);
+      try {
+        const data = await postResumeParse(file, '?filename=' + encodeURIComponent(file.name), 'application/octet-stream');
+        applyParsedResume(data.text, `Parsed ${file.name} with ${data.engine} (${data.word_count} words)`);
+      } catch (err) {
+        if (/\.(md|txt)$/i.test(file.name)) {
+          applyParsedResume(await file.text(), `Loaded ${file.name} (${file.size} bytes) as Master Resume!`);
+        } else {
+          showToast(`Could not parse ${file.name}: ${err.message}. Run "python main.py serve" for PDF/DOCX parsing.`);
+        }
+      }
+    }
+
+    async function importResumeFromLink() {
+      const input = document.getElementById('resume-link-input');
+      const url = input.value.trim();
+      if (!/^https?:\/\//i.test(url)) {
+        showToast('Paste a full http(s) document link first.');
+        return;
+      }
+      showToast('Fetching document link…');
+      try {
+        const data = await postResumeParse(JSON.stringify({ url }), '', 'application/json');
+        applyParsedResume(data.text, `Imported resume from link with ${data.engine} (${data.word_count} words)`);
+        input.value = '';
+      } catch (err) {
+        showToast(`Link import failed: ${err.message}`);
+      }
+    }
+
+    function handleResumeFileUpload(event) {
+      importResumeFile(event.target.files && event.target.files[0]);
+      event.target.value = '';
     }
 
     function handleDragOver(e) {
@@ -1726,23 +1845,27 @@
       e.preventDefault();
       document.getElementById('drop-zone').classList.remove('border-blue-400', 'bg-blue-50/20');
       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-        const file = e.dataTransfer.files[0];
-        const reader = new FileReader();
-        reader.onload = function(event) {
-          currentMasterResume = event.target.result;
-          localStorage.setItem("job_scout_master_resume", currentMasterResume);
-          initMasterResume();
-          showToast(`Uploaded ${file.name} successfully!`);
-        };
-        reader.readAsText(file);
+        importResumeFile(e.dataTransfer.files[0]);
       }
+    }
+
+    // Restarts the tab entrance animation; cards/rows rendered later (e.g. while searching) don't re-animate
+    function playTabEntrance(tab) {
+      tab.classList.remove('is-entering');
+      void tab.offsetWidth;
+      tab.classList.add('is-entering');
+      clearTimeout(tab._enterTimer);
+      tab._enterTimer = setTimeout(() => tab.classList.remove('is-entering'), 800);
     }
 
     // Tab switcher
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
       const activeTab = document.getElementById('tab-' + tabId);
-      if (activeTab) activeTab.classList.remove('hidden');
+      if (activeTab) {
+        activeTab.classList.remove('hidden');
+        playTabEntrance(activeTab);
+      }
 
       document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.classList.remove('bg-gray-100', 'text-gray-900', 'border', 'border-gray-200', 'font-medium');
@@ -2075,12 +2198,18 @@
       // Default to Subtab 1: Resume
       switchDrawerSubTab('resume');
 
-      document.getElementById('role-drawer').classList.remove('hidden');
+      showOverlay(document.getElementById('role-drawer'));
     }
 
     function closeDrawer() {
-      document.getElementById('role-drawer').classList.add('hidden');
+      hideWithAnimation(document.getElementById('role-drawer'));
     }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      closeDrawer();
+      closeAuthModal();
+    });
 
     // Human in the loop review toggle
     function toggleHumanReview(approved) {
@@ -2240,18 +2369,18 @@
         resume_diff: {
           role_header: "Associate Product Manager, Mphasis (Client: JPMorganChase) · May 2025 – Present",
           removed: "• Spearheaded product discovery and migration initiatives across Core Capabilities for 200+ enterprise apps.",
-          added: `• Tailored product execution specifically addressing ${company}'s ${title} roadmap requirements.`
+          added: `• Led product discovery and migration for 22 products and 200+ enterprise applications during JPMorganChase's integration of a 3,000+ person acquired organization.`
         },
         matchedKeywords: ["Product Strategy", "Agile PO", "System Migration"],
         gapKeywords: ["Role Specifics"],
-        coverLetter: `Dear Hiring Team at ${company},\n\nI am writing to express my enthusiasm for the ${title} role. With 7 years of product management experience spanning enterprise platform integrations at JPMorganChase and 0→1 consumer ecosystems, I am eager to contribute to ${company}'s roadmap.\n\nWarm regards,\nSwapnil Jathar`,
+        coverLetter: `Dear ${company} hiring team,\n\nI'm applying for the ${title} role. I have 7 years of product management experience, including enterprise platform integrations at JPMorganChase and 0-to-1 consumer products at Birdvision.\n\nI'd like to talk about what I could take on in this role. My resume is attached.\n\nSincerely,\nSwapnil Jathar`,
         tailoredResume: currentMasterResume,
         humanApproved: false,
         latex_pdf: "resume.pdf",
         link: link
       };
 
-      stagedJobs.unshift(newJob);
+      stagedJobs.unshift(unslopDrafts(newJob));
       renderPastelMatches();
       renderApplicationsTable();
       renderDetailedQueue();
@@ -2295,15 +2424,96 @@
     }
 
     // Init
+    // ========================================================
+    // Unslop: remove AI-writing tells from drafted resumes, cover letters and outreach notes.
+    // Mirrors job_scout/unslop.py (rules from the pstack "unslop" skill). User edits are never rewritten.
+    // ========================================================
+    const UNSLOP_VERBS = {
+      spearhead: { '': 'lead', ed: 'led', ing: 'leading', s: 'leads' },
+      leverag: { e: 'use', ed: 'used', es: 'uses', ing: 'using' },
+      utiliz: { e: 'use', ed: 'used', es: 'uses', ing: 'using' },
+      showcas: { e: 'show', ed: 'showed', es: 'shows', ing: 'showing' },
+      foster: { '': 'build', ed: 'built', ing: 'building', s: 'builds' },
+      enhanc: { e: 'improve', ed: 'improved', es: 'improves', ing: 'improving' },
+      facilitat: { e: 'run', ed: 'ran', es: 'runs', ing: 'running' },
+    };
+    const UNSLOP_PHRASES = [
+      [/\bI am writing to (?:express|convey) my (?:strong |keen |eager |sincere |great )?(?:enthusiasm|interest|excitement) (?:for|in) (?:applying (?:for|to) )?/gi, "I'm applying for "],
+      [/\bI hope (?:this|my) (?:letter |message |email )?finds you well\.?\s*/gi, ''],
+      [/,? ensuring (?!that\b)/gi, ' with '],
+      [/\bin order to\b/gi, 'to'],
+      [/\bdue to the fact that\b/gi, 'because'],
+      [/\bit is (?:important|worth) (?:to note|noting) that\s*/gi, ''],
+      [/\b(?:a )?proven track record (?:of|in)\b/gi, 'a record of'],
+      [/\b(?:a )?proven track record (?=\w+ing\b)/gi, 'experience '],
+      [/\b0\s*\u2192\s*1\b/g, '0-to-1'],
+      [/\s*\u2192\s*/g, ' to '],
+      [/\bresults[- ]driven\s+/gi, ''],
+      [/\bhighly motivated\s+/gi, ''],
+      [/\bdetail[- ]oriented\s+/gi, ''],
+      [/\b(?:deeply |truly )?passionate about\b/gi, 'interested in'],
+      [/\bcutting[- ]edge\b/gi, 'modern'],
+      [/\bstate[- ]of[- ]the[- ]art\b/gi, 'modern'],
+      [/\bseamless(?:ly)?\s+/gi, ''],
+      [/\bsynerg(?:y|ies) with\b/gi, 'fit with'],
+      [/\bpivotal\b/gi, 'key'],
+      [/\bcrucial\b/gi, 'key'],
+      [/\bnumerous\b/gi, 'many'],
+      [/\b(?:Additionally|Moreover|Furthermore), /gi, ''],
+    ];
+    const UNSLOP_DATE = '(?:\\d{4}|Present|Current|Now|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?(?: \\d{4})?)';
+
+    function matchCase(original, replacement) {
+      return original && /^[A-Z]/.test(original) && replacement
+        ? replacement[0].toUpperCase() + replacement.slice(1)
+        : replacement;
+    }
+
+    function unslop(text) {
+      if (!text) return text;
+      let out = text
+        .replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
+        .replace(new RegExp(`(${UNSLOP_DATE})\\s*[\\u2014\\u2013]\\s*(${UNSLOP_DATE})`, 'g'), '$1 - $2')
+        .replace(/\s+[—–]\s+/g, ', ')
+        .replace(/(\w)—(?=\w)/g, '$1, ')
+        .replace(/–/g, '-').replace(/—/g, ', ')
+        .replace(/[\u{1F300}-\u{1FAFF}\u{2700}-\u{27BF}\u{1F000}-\u{1F2FF}\u{2600}-\u{26FF}\u{FE0F}]/gu, '');
+
+      for (const [stem, forms] of Object.entries(UNSLOP_VERBS)) {
+        const suffixes = Object.keys(forms).filter(Boolean).join('|');
+        const re = new RegExp(`\\b${stem}(${suffixes})${forms[''] ? '?' : ''}\\b`, 'gi');
+        out = out.replace(re, (m, suffix) => matchCase(m, forms[suffix || '']));
+      }
+      for (const [re, replacement] of UNSLOP_PHRASES) {
+        if (replacement === '') {
+          // Deletion: capitalize the word that now opens the sentence
+          out = out.replace(new RegExp(`(?:${re.source})(\\w?)`, re.flags), (m, next) => /^[A-Z]/.test(m) ? next.toUpperCase() : next);
+        } else {
+          out = out.replace(re, (m) => matchCase(m, replacement));
+        }
+      }
+      return out.replace(/[ \t]{2,}/g, ' ').replace(/ +([,.;:])/g, '$1').replace(/,\s*,/g, ',').trim();
+    }
+
+    function unslopDrafts(job) {
+      job.coverLetter = unslop(job.coverLetter);
+      job.tailoredResume = unslop(job.tailoredResume);
+      job.outreachDraft = unslop(job.outreachDraft);
+      if (job.resume_diff) job.resume_diff.added = unslop(job.resume_diff.added);
+      return job;
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       initAuth();
       initMasterResume();
+      stagedJobs.forEach(unslopDrafts);
       renderPastelMatches();
       renderApplicationsTable();
       renderBrowseTable();
       renderDetailedQueue();
       renderKanban();
       renderLushaGrid();
+      playTabEntrance(document.getElementById('tab-dashboard'));
     });
   </script>
 </body>

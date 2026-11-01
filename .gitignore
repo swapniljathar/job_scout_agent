@@ -9,6 +9,7 @@ master_resume.md
 master_resume.txt
 job_ledger.json
 resumes/
+email_digest_*.html
 *.pdf
 *.tex
 *.aux

@@ -118,22 +118,32 @@ flowchart TD
 
 ```text
 job_scout_agent/
-├── .env.example                # Sample environment variables template
-├── .gitignore                  # Strict exclusion of private data (resumes, ledgers, keys)
-├── README.md                   # Complete system documentation & sitemap
-├── requirements.txt            # Python dependencies (Streamlit, Apify, Requests, etc.)
+├── main.py                     # Single CLI entry point: serve | app | scout | parse
+├── app.py                      # Streamlit dashboard (UI only; logic lives in job_scout/)
+├── job-hunt-dashboard.html     # Modern SPA dashboard (Tabs, Modals, Drawer, ATS Editor)
+├── index.html                  # Symlink → job-hunt-dashboard.html
+├── favicon.svg
 │
-├── index.html                  # Root landing page routing to dashboard
-├── job-hunt-dashboard.html     # Modern SPA Dashboard (Tabs, Modals, Drawer, ATS Editor)
-├── favicon.svg                 # Custom Job Scout Agent browser tab favicon
-├── server.py                   # Lightweight HTTP server with clean routing & MIME types
+├── job_scout/                  # Core package
+│   ├── config.py               # Settings + .env loader
+│   ├── agent.py                # JobScoutAgent orchestrator (discover → score → tailor → store → digest)
+│   ├── linkedin_scraper.py     # LinkedIn URL builder, async Apify crawler, job normalizer
+│   ├── resume_parser.py        # Docling resume parser + document-link import
+│   ├── resume_builder.py       # ATS tailoring (Gemini / heuristic) + ModernCV LaTeX
+│   ├── scoring.py              # Fit scoring engine
+│   ├── storage.py              # Local ledger + Supabase dedupe/storage
+│   ├── contacts.py             # Lusha decision-maker enrichment
+│   ├── digest.py               # Daily email digest HTML
+│   ├── server.py               # Dashboard HTTP server + /api/resume/parse
+│   ├── sample_jobs.py          # Curated offline job feed
+│   └── utils.py
 │
-├── app.py                      # Full-featured Streamlit agent dashboard
-├── pipeline.py                 # Core scraping, scoring, and resume generation pipeline
-├── daily_job_scout.py          # Scheduled daily runner for crawling and scoring
-├── sample_jobs.py              # Mock/offline job feed for instant testing
-├── master_resume.template.md   # Generic placeholder resume template for new users
-└── supabase_schema.sql         # SQL schema for cloud database & auth synchronization
+├── server.py                   # Compat shim → job_scout.server (for Render/Railway)
+├── daily_job_scout.py          # Compat shim → JobScoutAgent.run_daily (for existing cron jobs)
+├── master_resume.template.md   # Placeholder resume template for new users
+├── supabase_schema.sql
+├── requirements.txt
+└── .env.example
 ```
 
 ---
@@ -174,15 +184,32 @@ Edit `master_resume.md` with your genuine experience and skills. *(Note: `master
 
 ### 5. Launch the Modern Web Dashboard
 ```bash
-python3 server.py
+python3 main.py serve
 ```
-Open your browser at **`http://localhost:8080`**.
+Open your browser at **`http://localhost:8080`**. Running through the server enables PDF/DOCX parsing and document-link import in the Master Resume Hub.
 
 ### 6. (Alternative) Launch the Streamlit Dashboard
 ```bash
-streamlit run app.py
+python3 main.py app
 ```
 Open your browser at **`http://localhost:8501`**.
+
+### 7. Other Commands
+```bash
+python3 main.py scout --query "AI Product Manager" --max-jobs 5   # headless daily pipeline (cron)
+python3 main.py parse resume.pdf                                  # parse a resume file
+python3 main.py parse "https://docs.google.com/document/d/<id>/edit" --save   # parse a doc link → master_resume.md
+```
+
+### 📄 Resume Parsing with Docling
+The resume parser uses [Docling](https://github.com/docling-project/docling) to convert PDF, DOCX, PPTX, HTML and images into structured Markdown, preserving headings, reading order, bullets and tables (with OCR for scanned PDFs). The parser then detects sections (summary, experience, skills, education, certifications…), contact details and a de-duplicated skill list.
+
+- **Sources:** local files, uploads (web dashboard, Streamlit), and **document links**: Google Docs, Google Drive, Dropbox, OneDrive or any direct PDF/DOCX URL. Links must be shared as *Anyone with the link can view*.
+- **Fallback:** if Docling isn't installed (or `USE_DOCLING=false`), the parser falls back to `pypdf` / `python-docx`.
+- **API:** `POST /api/resume/parse?filename=resume.pdf` with the file bytes, or `POST /api/resume/parse` with JSON `{"url": "<doc link>"}`.
+
+### ✍️ Plain-English Drafts (unslop)
+Tailored resumes, cover letters and recruiter notes go through an "unslop" pass based on the [pstack unslop skill](https://github.com/cursor/plugins/blob/main/pstack/skills/unslop/SKILL.md). LLM prompts include its writing rules. The generated text is then cleaned by [job_scout/unslop.py](job_scout/unslop.py) (Python) and an identical function in the dashboard. The cleanup replaces buzzwords ("spearheaded", "leveraged", "results-driven"), em dashes, curly quotes, emojis and stock cover-letter openers. Text you edit yourself is never rewritten.
 
 ---
 
@@ -202,7 +229,7 @@ Job Scout Agent is engineered from the ground up to protect your sensitive perso
 | :--- | :--- | :--- |
 | **Vercel** | Static Web App | Deploy `index.html` & `job-hunt-dashboard.html` using the static preset |
 | **Firebase Hosting** | Firebase CLI | `firebase deploy --only hosting` (configure `public: "."`) |
-| **Render / Railway** | Python Web Service | Start command: `python3 server.py` (binds to `PORT`) |
+| **Render / Railway** | Python Web Service | Start command: `python3 main.py serve` (binds to `PORT`) |
 | **Streamlit Community Cloud** | Streamlit App | Connect GitHub repo and point entry to `app.py` |
 
 ---

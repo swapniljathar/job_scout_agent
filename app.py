@@ -1,24 +1,15 @@
 import os
-import re
-import json
 from datetime import datetime
 import streamlit as st
-import requests
 
-from pipeline import (
-    build_linkedin_url,
-    run_apify_async,
-    parse_apify_jobs,
-    check_supabase_duplicates,
-    store_job_in_supabase,
-    generate_ats_optimized_resume,
-    build_moderncv_latex,
-    generate_email_digest_html,
-    APIFY_TOKEN,
-    SUPABASE_URL,
-    SUPABASE_KEY
-)
-from sample_jobs import get_sample_jobs
+from job_scout.agent import JobScoutAgent, ScoutCriteria
+from job_scout.config import settings
+from job_scout.digest import generate_email_digest_html
+from job_scout.linkedin_scraper import build_linkedin_url
+from job_scout.resume_parser import ResumeParseError, docling_available, parse_resume_bytes, parse_resume_link
+from job_scout.storage import check_supabase_duplicates, store_job_in_supabase
+
+agent = JobScoutAgent()
 
 # ---------------------------------------------------------
 # Page Configuration
@@ -68,7 +59,7 @@ with col_f1:
 with col_f2:
     workplace_filter = st.selectbox(
         "Workplace",
-        ["Any", "remote", "hybrid_or_remote"],
+        ["Any", "remote", "hybrid_or_remote", "onsite_or_remote"],
         index=0,
         help="Matching n8n f_WT parameter"
     )
@@ -113,88 +104,13 @@ if st.sidebar.button("💾 Save Search Configuration"):
 # ---------------------------------------------------------
 # Master Resume Helpers
 # ---------------------------------------------------------
-MASTER_RESUME_PATH = "master_resume.md"
+MASTER_RESUME_PATH = settings.master_resume_path.name
 
 def load_master_resume():
-    if os.path.exists(MASTER_RESUME_PATH):
-        with open(MASTER_RESUME_PATH, "r", encoding="utf-8") as f:
-            return f.read()
-    return ""
+    return agent.load_resume()
 
 def save_master_resume(content):
-    with open(MASTER_RESUME_PATH, "w", encoding="utf-8") as f:
-        f.write(content)
-
-def extract_text_from_upload(uploaded_file):
-    filename = uploaded_file.name.lower()
-    try:
-        if filename.endswith(".pdf"):
-            try:
-                import pypdf
-                reader = pypdf.PdfReader(uploaded_file)
-                text = "\n\n".join([page.extract_text() or "" for page in reader.pages])
-                return text.strip(), None
-            except ImportError:
-                return None, "PDF extraction requires 'pypdf'. Run: pip install pypdf"
-        elif filename.endswith(".docx"):
-            try:
-                import docx
-                doc = docx.Document(uploaded_file)
-                text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
-                return text.strip(), None
-            except ImportError:
-                return None, "Word extraction requires 'python-docx'. Run: pip install python-docx"
-        elif filename.endswith(".md") or filename.endswith(".txt"):
-            content = uploaded_file.read().decode("utf-8", errors="ignore")
-            return content.strip(), None
-        else:
-            content = uploaded_file.read().decode("utf-8", errors="ignore")
-            return content.strip(), None
-    except Exception as e:
-        return None, f"Failed to parse file: {str(e)}"
-
-# ---------------------------------------------------------
-# Fit Scoring Engine
-# ---------------------------------------------------------
-def score_job(job, resume_text, must_haves, excludes, target_roles):
-    title = job.get("title", "").lower()
-    description = job.get("jobDescription", "").lower()
-    combined_text = f"{title} {description}"
-
-    score = 65
-    reasons = []
-
-    title_matches = [role.strip().lower() for role in target_roles if role.strip().lower() in title]
-    if title_matches:
-        score += 15
-        reasons.append(f"Title directly matches: '{title_matches[0].title()}'.")
-    elif any(w in title for w in ["product", "ai", "apm", "manager"]):
-        score += 8
-        reasons.append("Title aligns with product/AI focus.")
-
-    excluded_found = [kw.strip().lower() for kw in excludes if kw.strip() and kw.strip().lower() in combined_text]
-    if excluded_found:
-        score -= 25
-        reasons.append(f"Contains excluded keywords: {', '.join(excluded_found)}.")
-
-    matched_must_haves = [kw.strip().lower() for kw in must_haves if kw.strip() and kw.strip().lower() in combined_text]
-    if matched_must_haves:
-        boost = min(len(matched_must_haves) * 4, 15)
-        score += boost
-        reasons.append(f"Matches key competencies: {', '.join(matched_must_haves[:4])}.")
-
-    if "agent" in combined_text or "llm" in combined_text or "generative ai" in combined_text:
-        score += 5
-        reasons.append("Synergy with generative AI and agentic workflow experience.")
-
-    final_score = max(10, min(99, score))
-    why_text = " ".join(reasons) if reasons else "General alignment with product profile."
-    return final_score, why_text
-
-# ---------------------------------------------------------
-# Curated Sample / Fallback Dataset (55+ listings)
-# ---------------------------------------------------------
-SAMPLE_JOBS = get_sample_jobs(60)
+    agent.save_resume(content)
 
 # ---------------------------------------------------------
 # UI Header
@@ -219,55 +135,39 @@ with tab1:
             st.cache_data.clear()
             st.rerun()
 
-    raw_jobs = []
     status_placeholder = st.empty()
+    criteria = ScoutCriteria(
+        query=primary_role,
+        location=location_input,
+        time_filter=time_filter,
+        remote_filter=remote_val,
+        target_roles=[r.strip() for r in target_roles_input.split(",") if r.strip()],
+        must_haves=[k.strip() for k in must_have_keywords.split(",") if k.strip()],
+        excludes=[k.strip() for k in exclude_keywords.split(",") if k.strip()],
+        max_jobs=max_jobs_to_fetch,
+    )
 
     if data_source == "Apify Async Crawler":
         with st.spinner(f"Executing asynchronous Apify crawling for {max_jobs_to_fetch} jobs..."):
-            def update_status(msg):
-                status_placeholder.info(msg)
-
-            raw_items, fetch_error = run_apify_async(
-                generated_linkedin_url,
-                token=APIFY_TOKEN,
-                max_items=max_jobs_to_fetch,
-                status_callback=update_status
-            )
-
+            raw_jobs, fetch_error = agent.discover(criteria, live=True, fill_with_samples=True, status_callback=status_placeholder.info)
         if fetch_error:
             st.warning(f"⚠️ Apify Notice: {fetch_error}")
             st.info(f"💡 Showing {max_jobs_to_fetch} curated recommendations below so you can test ATS optimization and LaTeX generation without waiting.")
-            raw_jobs = get_sample_jobs(max_jobs_to_fetch)
-        else:
-            raw_jobs = parse_apify_jobs(raw_items, max_days=30, max_limit=max_jobs_to_fetch)
-            if len(raw_jobs) < max_jobs_to_fetch:
-                # Supplement with curated sample jobs to meet requested target count
-                supplement = get_sample_jobs(max_jobs_to_fetch - len(raw_jobs))
-                raw_jobs.extend(supplement)
     else:
         st.info(f"ℹ️ Showing **{max_jobs_to_fetch} curated recommendations** for Pune, Remote & Tech Hubs.")
-        raw_jobs = get_sample_jobs(max_jobs_to_fetch)
+        raw_jobs, _ = agent.discover(criteria, live=False)
 
     status_placeholder.empty()
 
     # Deduplication check against Supabase
-    new_jobs = check_supabase_duplicates(raw_jobs, SUPABASE_URL, SUPABASE_KEY)
+    new_jobs = check_supabase_duplicates(raw_jobs)
+    new_links = {nj.get("jobLink") for nj in new_jobs}
 
     # Process and score
     resume_content = load_master_resume()
-    must_have_list = [k.strip() for k in must_have_keywords.split(",") if k.strip()]
-    exclude_list = [k.strip() for k in exclude_keywords.split(",") if k.strip()]
-    target_role_list = [r.strip() for r in target_roles_input.split(",") if r.strip()]
-
-    scored_jobs = []
-    for item in raw_jobs:
-        score, why = score_job(item, resume_content, must_have_list, exclude_list, target_role_list)
-        item["score"] = score
-        item["why"] = why
-        item["is_new"] = any(item.get("jobLink") == nj.get("jobLink") for nj in new_jobs)
-        scored_jobs.append(item)
-
-    scored_jobs.sort(key=lambda x: x["score"], reverse=True)
+    scored_jobs = agent.score(raw_jobs, criteria, resume_content)
+    for item in scored_jobs:
+        item["is_new"] = item.get("jobLink") in new_links
 
     # Quick Search & Filter Controls for browsing 50+ recommendations smoothly
     col_search, col_filter = st.columns([3, 2])
@@ -313,29 +213,16 @@ with tab1:
 
                 with c1:
                     if st.button(f"✨ Tailor ATS Resume #{idx}", key=f"tailor_{idx}"):
-                        with st.spinner("Optimizing resume for ATS and building ModernCV LaTeX..."):
-                            # 1. ATS text
-                            ats_text, _ = generate_ats_optimized_resume(resume_content, job["jobDescription"], target_role=job["title"])
-                            # 2. ModernCV LaTeX
-                            latex_code = build_moderncv_latex(ats_text)
-
-                            safe_co = re.sub(r'[^a-zA-Z0-9_]', '', job["company"].replace(" ", "_")).lower()
-                            date_str = datetime.now().strftime("%Y%m%d")
-
-                            os.makedirs("resumes", exist_ok=True)
-                            tex_file = f"resumes/resume_{safe_co}_{date_str}.tex"
-                            txt_file = f"resumes/resume_{safe_co}_{date_str}.txt"
-
-                            with open(tex_file, "w", encoding="utf-8") as tf:
-                                tf.write(latex_code)
-                            with open(txt_file, "w", encoding="utf-8") as xf:
-                                xf.write(ats_text)
+                        with st.spinner("Tailoring resume, building ModernCV LaTeX and drafting cover letter..."):
+                            tailored = agent.tailor(job, resume_content)
 
                             st.session_state["tailored_resumes"][job["company"]] = {
-                                "ats_text": ats_text,
-                                "latex_code": latex_code,
-                                "tex_file": tex_file,
-                                "txt_file": txt_file
+                                "ats_text": tailored.ats_text,
+                                "latex_code": tailored.latex_code,
+                                "tex_file": tailored.tex_file,
+                                "txt_file": tailored.txt_file,
+                                "cover_letter": tailored.cover_letter,
+                                "cover_file": tailored.cover_file
                             }
 
                             st.session_state["decisions"].append({
@@ -349,7 +236,7 @@ with tab1:
 
                 with c2:
                     if st.button(f"💾 Record to Supabase #{idx}", key=f"store_{idx}"):
-                        saved, msg = store_job_in_supabase(job, SUPABASE_URL, SUPABASE_KEY)
+                        saved, msg = store_job_in_supabase(job)
                         if saved:
                             st.success(f"Saved {job['company']} to Supabase 'jobs' table!")
                         else:
@@ -378,7 +265,7 @@ with tab1:
                 # If tailored resume exists for this job, show download buttons
                 if job["company"] in st.session_state["tailored_resumes"]:
                     res_info = st.session_state["tailored_resumes"][job["company"]]
-                    col_dl1, col_dl2 = st.columns(2)
+                    col_dl1, col_dl2, col_dl3 = st.columns(3)
                     with col_dl1:
                         st.download_button(
                             label=f"⬇️ Download ATS Resume (.txt)",
@@ -395,6 +282,16 @@ with tab1:
                             mime="text/x-tex",
                             key=f"dl_tex_{idx}"
                         )
+                    with col_dl3:
+                        st.download_button(
+                            label="⬇️ Download Cover Letter (.txt)",
+                            data=res_info["cover_letter"],
+                            file_name=os.path.basename(res_info["cover_file"]),
+                            mime="text/plain",
+                            key=f"dl_cover_{idx}"
+                        )
+                    with st.expander("✉️ Cover letter draft", expanded=False):
+                        st.text(res_info["cover_letter"])
     else:
         st.warning("No listings found matching current criteria.")
 
@@ -404,6 +301,28 @@ with tab1:
 with tab2:
     st.subheader("Master Resume Profile")
     st.markdown("Your foundational resume used by the agent to match qualifications and draft customized variations.")
+
+    def show_parsed_resume(parsed, key):
+        st.success(f"Extracted {parsed.word_count} words from `{parsed.source}` using **{parsed.engine}**.")
+        for warning in parsed.warnings:
+            st.warning(warning)
+        col_meta1, col_meta2 = st.columns(2)
+        with col_meta1:
+            st.markdown("**Detected sections:** " + (", ".join(k for k in parsed.sections if k != "header") or "—"))
+            st.markdown("**Contact:** " + " · ".join(v for v in parsed.contact.values() if v))
+        with col_meta2:
+            st.markdown("**Skills:** " + (", ".join(parsed.skills[:15]) or "—"))
+
+        with st.expander("👁️ Preview Parsed Content", expanded=False):
+            st.markdown(parsed.text[:3000] + ("..." if len(parsed.text) > 3000 else ""))
+
+        if st.button("✅ Save & Set as Master Resume", type="primary", key=f"save_parsed_{key}"):
+            save_master_resume(parsed.text)
+            st.success("Master resume updated! Job match scores will now recalculate.")
+            st.rerun()
+
+    engine_label = "Docling (layout-aware)" if docling_available() else "basic text extraction — `pip install docling` for better results"
+    st.caption(f"Parser engine: {engine_label}")
 
     # Upload Section
     st.markdown("#### 📤 Upload Your Resume")
@@ -415,24 +334,24 @@ with tab2:
 
     if uploaded_file is not None:
         with st.spinner(f"Parsing '{uploaded_file.name}'..."):
-            extracted_text, parse_error = extract_text_from_upload(uploaded_file)
+            try:
+                show_parsed_resume(parse_resume_bytes(uploaded_file.getvalue(), uploaded_file.name), "upload")
+            except ResumeParseError as err:
+                st.error(f"⚠️ {err}")
 
-        if parse_error:
-            st.error(f"⚠️ {parse_error}")
-        elif extracted_text:
-            st.success(f"Successfully extracted {len(extracted_text.split())} words from `{uploaded_file.name}`.")
-            
-            with st.expander("👁️ Preview Parsed Content", expanded=False):
-                st.text(extracted_text[:1500] + ("..." if len(extracted_text) > 1500 else ""))
-
-            col_save, col_cancel = st.columns([2, 3])
-            with col_save:
-                if st.button("✅ Save & Set as Master Resume", type="primary", use_container_width=True):
-                    save_master_resume(extracted_text)
-                    st.success(f"Master resume updated with content from `{uploaded_file.name}`! Job match scores will now recalculate.")
-                    st.rerun()
-        else:
-            st.warning("The uploaded file appears to be empty or unreadable.")
+    # Document Link Section
+    st.markdown("#### 🔗 Import from Document Link")
+    doc_link = st.text_input(
+        "Google Docs, Google Drive, Dropbox, OneDrive or direct PDF/DOCX link",
+        placeholder="https://docs.google.com/document/d/.../edit",
+        help="The document must be shared as 'Anyone with the link can view'."
+    )
+    if doc_link:
+        with st.spinner("Downloading and parsing document..."):
+            try:
+                show_parsed_resume(parse_resume_link(doc_link), "link")
+            except ResumeParseError as err:
+                st.error(f"⚠️ {err}")
 
     st.markdown("---")
 
@@ -492,7 +411,8 @@ with tab3:
     st.subheader("Connected Integrations & Services")
     st.json({
         "apify_actor": "curious_coder~linkedin-jobs-scraper",
-        "supabase_endpoint": SUPABASE_URL,
+        "supabase_endpoint": settings.supabase_url,
+        "resume_parser": "docling" if docling_available() else "basic",
         "active_mode": data_source,
         "n8n_parity": "Full (URL builder, async crawler, Supabase deduplication, ATS resume, ModernCV LaTeX, Email digest)",
         "master_resume_file": MASTER_RESUME_PATH
