@@ -190,7 +190,8 @@ def extract_sections(text):
 
 def extract_contact(text):
     email = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", text)
-    phone = re.search(r"\+?\d[\d\s().-]{8,}\d", text)
+    # A phone number has at least 10 digits; this skips year ranges like "2017 - 2021"
+    phone = next((m for m in re.finditer(r"\+?\d[\d\s().-]{8,}\d", text) if len(re.sub(r"\D", "", m.group(0))) >= 10), None)
     linkedin = re.search(r"(?:https?://)?(?:www\.)?linkedin\.com/in/[\w-]+/?", text, re.IGNORECASE)
     first_line = next((line.strip("#* ").strip() for line in text.splitlines() if line.strip()), "")
     return {

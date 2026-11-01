@@ -64,7 +64,7 @@ def _generate_with_gemini(system_prompt, prompt, gemini_api_key):
                 "system_instruction": {"parts": [{"text": system_prompt}]},
                 "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             },
-            timeout=90,
+            timeout=180,  # full Flash models can think for 2+ minutes
         )
         if response.status_code != 200:
             logger.warning("Gemini HTTP %s, falling back to heuristic engine: %s", response.status_code, response.text[:200])
