@@ -2,7 +2,7 @@
 """
 Job Scout Agent — single entry point.
 
-  python main.py serve              Web dashboard + resume parsing API (http://localhost:8080)
+  python main.py serve              Web dashboard + API + daily 6:30 AM scout run (http://localhost:8080)
   python main.py app                Streamlit dashboard (http://localhost:8501)
   python main.py scout              Headless daily pipeline (cron / scheduler friendly)
   python main.py parse <file|link>  Parse a resume with Docling and print the result
@@ -13,12 +13,12 @@ import logging
 import subprocess
 import sys
 
-from job_scout.config import PROJECT_ROOT
+from job_scout.config import PROJECT_ROOT, settings
 
 
 def cmd_serve(args):
     from job_scout.server import run_server
-    run_server(args.port)
+    run_server(args.port, schedule=not args.no_schedule)
 
 
 def cmd_app(args):
@@ -26,9 +26,12 @@ def cmd_app(args):
 
 
 def cmd_scout(args):
-    from job_scout.agent import JobScoutAgent, ScoutCriteria
+    from job_scout.agent import JobScoutAgent, ScoutCriteria, ScoutError
     criteria = ScoutCriteria(query=args.query, location=args.location, max_jobs=args.max_jobs)
-    JobScoutAgent().run_daily(criteria)
+    try:
+        JobScoutAgent().run_daily(criteria)
+    except ScoutError as err:
+        sys.exit(f"⚠️  Scout run failed: {err}")
 
 
 def cmd_parse(args):
@@ -57,14 +60,15 @@ def build_parser():
 
     serve = sub.add_parser("serve", help="Run web dashboard + API")
     serve.add_argument("--port", type=int, default=None)
+    serve.add_argument("--no-schedule", action="store_true", help="Don't start the built-in daily scout run")
     serve.set_defaults(func=cmd_serve)
 
     sub.add_parser("app", help="Run Streamlit dashboard").set_defaults(func=cmd_app)
 
     scout = sub.add_parser("scout", help="Run headless daily pipeline")
-    scout.add_argument("--query", default="AI Product Manager")
-    scout.add_argument("--location", default="Pune, Maharashtra, India")
-    scout.add_argument("--max-jobs", type=int, default=5)
+    scout.add_argument("--query", default=settings.scout_query)
+    scout.add_argument("--location", default=settings.scout_location)
+    scout.add_argument("--max-jobs", type=int, default=settings.scout_max_jobs)
     scout.set_defaults(func=cmd_scout)
 
     parse = sub.add_parser("parse", help="Parse a resume file or document link")

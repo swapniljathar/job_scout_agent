@@ -396,12 +396,31 @@
         </div>
       </div>
 
+      <!-- MORNING SUMMARY: jobs found by the daily 6:30 AM scout run (live data) -->
+      <div id="morning-summary" class="hidden bg-white rounded-2xl border border-[#EAEAEA] p-5 shadow-2xs space-y-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <h2 class="text-xs font-bold text-gray-900 uppercase tracking-wider">This Morning's Scout</h2>
+              <span id="morning-summary-count" class="text-[9.5px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-medium"></span>
+            </div>
+            <p id="morning-summary-meta" class="text-[11.5px] text-gray-500 mt-0.5"></p>
+          </div>
+          <button id="scout-run-btn" onclick="runScoutNow()" class="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 font-medium text-xs smooth-transition shrink-0 shadow-2xs flex items-center gap-2 disabled:opacity-60 disabled:cursor-wait">
+            <svg id="scout-run-icon" class="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            <span id="scout-run-label">Run scout now</span>
+          </button>
+        </div>
+        <div id="morning-summary-list" class="divide-y divide-gray-100"></div>
+        <p id="scout-run-log" class="hidden text-[11px] font-mono text-gray-500 truncate"></p>
+      </div>
+
       <!-- SECTION: TOP 5 MATCHES -->
       <div class="space-y-3">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <h2 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Top Match Roles · High ATS Alignment</h2>
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono bg-blue-50 text-blue-700 font-semibold border border-blue-100">5 Staged</span>
+            <span id="staged-count-badge" class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono bg-blue-50 text-blue-700 font-semibold border border-blue-100">5 Staged</span>
           </div>
           <span class="text-xs text-gray-400 font-mono">Ranked by ATS Match against Master Resume</span>
         </div>
@@ -1051,6 +1070,12 @@
             <button onclick="closeDrawer()" class="px-3.5 py-1.5 rounded-full bg-white hover:bg-gray-100 border border-gray-200 text-xs font-medium text-gray-700 smooth-transition">
               Cancel
             </button>
+            <button onclick="skipJob()" class="px-3.5 py-1.5 rounded-full bg-white hover:bg-gray-100 border border-gray-200 text-xs font-medium text-gray-700 smooth-transition">
+              Skip
+            </button>
+            <button onclick="markApplied()" class="px-3.5 py-1.5 rounded-full bg-white hover:bg-gray-100 border border-gray-200 text-xs font-medium text-gray-700 smooth-transition">
+              Mark applied
+            </button>
             <button onclick="approveApplication()" id="drawer-approve-btn" class="px-4 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 font-medium text-xs smooth-transition shadow-2xs flex items-center gap-1.5">
               <span>Approve & Save Application ✓</span>
             </button>
@@ -1253,7 +1278,7 @@
       // Automatically launch the Sign Up flow if no user is signed in
       if (!currentUser) {
         setTimeout(() => {
-          openAuthModal('signup');
+          if (!currentUser) openAuthModal('signup');
         }, 150);
       }
 
@@ -1413,6 +1438,7 @@
 
       showToast(currentAuthMode === 'signup' ? "Creating account…" : "Authenticating…");
 
+      let authNotice = null;
       if (supabaseClient) {
         try {
           if (currentAuthMode === 'signup') {
@@ -1422,9 +1448,12 @@
               options: { data: { full_name: name } }
             });
             if (error) console.warn("Supabase email signup:", error.message);
+            authNotice = error ? `Sign-up failed: ${error.message}. Showing sample jobs.`
+              : (data && !data.session ? 'Check your email to confirm your account, then sign in.' : null);
           } else {
             const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
             if (error) console.warn("Supabase email signin:", error.message);
+            if (error) authNotice = `Sign-in failed: ${error.message}. Showing sample jobs.`;
           }
         } catch (err) {
           console.warn("Supabase auth exception:", err);
@@ -1441,7 +1470,7 @@
         localStorage.setItem("job_scout_current_user", JSON.stringify(currentUser));
         renderAuthHeader();
         closeAuthModal();
-        showToast(currentAuthMode === 'signup' ? `Welcome, ${name}! Account created.` : `Welcome back, ${name}!`);
+        showToast(authNotice || (currentAuthMode === 'signup' ? `Welcome, ${name}! Account created.` : `Welcome back, ${name}!`));
       }, 400);
     }
 
@@ -1468,7 +1497,20 @@
       showToast("Signed in as Swapnil Jathar (Demo APM)");
     }
 
-    function logoutUser() {
+    async function logoutUser() {
+      if (supabaseClient) {
+        try {
+          await supabaseClient.auth.signOut();
+        } catch (err) {
+          console.warn("Supabase sign-out:", err);
+        }
+      }
+      // Real jobs are personal data: reload so they don't stay on screen after sign-out
+      if (liveMode) {
+        localStorage.removeItem("job_scout_current_user");
+        window.location.reload();
+        return;
+      }
       currentUser = null;
       localStorage.removeItem("job_scout_current_user");
       renderAuthHeader();
@@ -1896,11 +1938,20 @@
     }
 
     // Render 5 Soothing Pastel Cards (Tsenta-inspired refined card tokens)
+    // Escape text from scraped job posts before it goes into innerHTML
+    function esc(value) {
+      return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function safeUrl(url) {
+      return /^https?:\/\//i.test(url || '') ? url : '#';
+    }
+
     function renderPastelMatches() {
       const container = document.getElementById('pastel-matches-grid');
       const C = 103.67;
 
-      container.innerHTML = stagedJobs.map((job, idx) => {
+      container.innerHTML = topMatchJobs().map((job, idx) => {
         const offset = C - (job.score / 100) * C;
         return `
           <div class="rounded-2xl border border-[#EAEAEA] bg-white p-2 shadow-2xs hover:shadow-xs hover:border-gray-300 smooth-transition flex flex-col justify-between group">
@@ -1908,11 +1959,11 @@
               <div>
                 <div class="flex items-center justify-between gap-1 text-[10px] text-gray-500 font-mono">
                   <span class="font-bold tracking-wider text-gray-600">0${idx + 1} · FIT</span>
-                  <span class="truncate text-[10.5px]">${job.postedAt}</span>
+                  <span class="truncate text-[10.5px]">${esc(job.postedAt)}</span>
                 </div>
                 
                 <div class="mt-1.5 flex items-start justify-between gap-2">
-                  <div class="font-semibold text-xs text-gray-900 leading-snug line-clamp-2">${job.title}</div>
+                  <div class="font-semibold text-xs text-gray-900 leading-snug line-clamp-2">${esc(job.title)}</div>
                   
                   <!-- Circular Gauge Ring -->
                   <div class="relative h-8 w-8 shrink-0">
@@ -1926,12 +1977,12 @@
 
                 <!-- Skill Tag Chips -->
                 <div class="flex flex-wrap gap-1 mt-2.5">
-                  ${job.tags.map(t => `<span class="text-[9.5px] px-1.5 py-0.5 rounded-md bg-white/80 text-gray-700 border border-black/5 font-medium shadow-2xs">${t}</span>`).join('')}
+                  ${job.tags.map(t => `<span class="text-[9.5px] px-1.5 py-0.5 rounded-md bg-white/80 text-gray-700 border border-black/5 font-medium shadow-2xs">${esc(t)}</span>`).join('')}
                 </div>
               </div>
 
               <div class="text-[10px] text-gray-500 truncate pt-2">
-                📍 ${job.location.split(',')[0]}
+                📍 ${esc(job.location.split(',')[0])}
               </div>
             </div>
 
@@ -1939,7 +1990,7 @@
             <div class="pt-2.5 pb-1 px-1.5 flex items-center justify-between gap-1">
               <div class="min-w-0 flex items-center gap-1.5">
                 <span class="w-1.5 h-1.5 rounded-full ${job.humanApproved ? 'bg-emerald-500' : 'bg-amber-400'}"></span>
-                <span class="text-[11px] font-semibold text-gray-800 truncate">${job.company}</span>
+                <span class="text-[11px] font-semibold text-gray-800 truncate">${esc(job.company)}</span>
               </div>
               <div class="flex items-center gap-1 shrink-0">
                 <button onclick="openDrawer('${job.id}')" class="h-6 px-2.5 rounded-full text-[10.5px] font-medium bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 smooth-transition shadow-2xs flex items-center gap-1">
@@ -1965,17 +2016,17 @@
         } else if (job.status === 'Outreach Drafted') {
           statusBadge = `<span class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 font-medium text-[11px] bg-[#EFF6FF] text-[#1E40AF] border border-[#DBEAFE]"><span class="h-1.5 w-1.5 rounded-full bg-[#3B82F6]"></span>Tailoring</span>`;
         } else {
-          statusBadge = `<span class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 font-medium text-[11px] bg-gray-100 text-gray-700 border border-gray-200">${job.status}</span>`;
+          statusBadge = `<span class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 font-medium text-[11px] bg-gray-100 text-gray-700 border border-gray-200">${esc(job.status)}</span>`;
         }
 
         return `
           <tr class="hover:bg-gray-50/70 smooth-transition cursor-pointer" onclick="openDrawer('${job.id}')">
-            <td class="py-3 px-3 font-medium text-gray-900">${job.company}</td>
-            <td class="py-3 px-3 text-gray-700 font-medium">${job.title}</td>
+            <td class="py-3 px-3 font-medium text-gray-900">${esc(job.company)}</td>
+            <td class="py-3 px-3 text-gray-700 font-medium">${esc(job.title)}</td>
             <td class="py-3 px-3 font-mono text-gray-500 text-[11px]">Greenhouse</td>
             <td class="py-3 px-3 font-mono text-[11px] text-gray-800 font-semibold">${job.score}%</td>
             <td class="py-3 px-3">${statusBadge}</td>
-            <td class="py-3 px-3 text-gray-400 font-mono text-[11px]">${job.postedAt}</td>
+            <td class="py-3 px-3 text-gray-400 font-mono text-[11px]">${esc(job.postedAt)}</td>
             <td class="py-3 px-3 text-right">
               <button onclick="event.stopPropagation(); openDrawer('${job.id}')" class="px-2.5 py-1 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 text-[11px] font-medium smooth-transition">
                 Tailor & Review ›
@@ -2015,16 +2066,16 @@
       tbody.innerHTML = jobs.map((job, idx) => `
         <tr class="hover:bg-gray-50/70 smooth-transition">
           <td class="py-2.5 px-4 font-mono text-[11px] text-gray-400">${idx + 1}</td>
-          <td class="py-2.5 px-4 font-medium text-gray-900">${job.title}</td>
-          <td class="py-2.5 px-4 text-gray-700">${job.company}</td>
-          <td class="py-2.5 px-4 text-gray-500">${job.location}</td>
-          <td class="py-2.5 px-4 font-mono text-gray-400 text-[11px]">${job.ats}</td>
+          <td class="py-2.5 px-4 font-medium text-gray-900">${esc(job.title)}</td>
+          <td class="py-2.5 px-4 text-gray-700">${esc(job.company)}</td>
+          <td class="py-2.5 px-4 text-gray-500">${esc(job.location)}</td>
+          <td class="py-2.5 px-4 font-mono text-gray-400 text-[11px]">${esc(job.ats)}</td>
           <td class="py-2.5 px-4 font-mono text-[11px] text-gray-800 font-semibold">${job.score}%</td>
-          <td class="py-2.5 px-4 text-gray-400 font-mono text-[11px]">${job.postedAt}</td>
+          <td class="py-2.5 px-4 text-gray-400 font-mono text-[11px]">${esc(job.postedAt)}</td>
           <td class="py-2.5 px-4 text-right">
             ${job.staged 
               ? `<button onclick="openDrawer('${job.stagedId}')" class="px-2.5 py-1 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 text-[11px] font-medium smooth-transition">Tailor & Review</button>`
-              : `<button onclick="stageCustomJob('${job.company}', '${job.title}', '${job.location}', '${job.score}', '${job.link}')" class="px-2.5 py-1 rounded-full bg-white hover:bg-gray-100 border border-gray-200 text-gray-700 text-[11px] font-mono smooth-transition">Tailor with AI +</button>`
+              : `<button onclick="stageCustomJob('${esc(job.company)}', '${esc(job.title)}', '${esc(job.location)}', '${job.score}', '${job.link}')" class="px-2.5 py-1 rounded-full bg-white hover:bg-gray-100 border border-gray-200 text-gray-700 text-[11px] font-mono smooth-transition">Tailor with AI +</button>`
             }
           </td>
         </tr>
@@ -2044,21 +2095,21 @@
         <div class="bg-white rounded-2xl border border-[#EAEAEA] p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-2xs hover:shadow-xs smooth-transition">
           <div class="space-y-1">
             <div class="flex items-center gap-2">
-              <span class="font-bold text-sm text-gray-900">${job.company}</span>
+              <span class="font-bold text-sm text-gray-900">${esc(job.company)}</span>
               <span class="text-xs text-gray-400">•</span>
-              <span class="text-xs text-gray-700 font-medium">${job.title}</span>
+              <span class="text-xs text-gray-700 font-medium">${esc(job.title)}</span>
               <span class="font-mono text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200 font-semibold">${job.score}%</span>
               ${job.humanApproved 
                 ? '<span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">Human Approved ✓</span>'
                 : '<span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">Pending Review</span>'}
             </div>
-            <p class="text-xs text-gray-500">${job.reason}</p>
+            <p class="text-xs text-gray-500">${esc(job.reason)}</p>
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <button onclick="openDrawer('${job.id}')" class="px-3.5 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 text-xs font-medium smooth-transition shadow-2xs">
               Tailor & Review
             </button>
-            <a href="${job.link}" target="_blank" class="px-3 py-1.5 rounded-full bg-white hover:bg-gray-50 border border-gray-200 text-xs text-blue-600 font-mono smooth-transition">
+            <a href="${esc(safeUrl(job.link))}" target="_blank" class="px-3 py-1.5 rounded-full bg-white hover:bg-gray-50 border border-gray-200 text-xs text-blue-600 font-mono smooth-transition">
               LinkedIn ↗
             </a>
           </div>
@@ -2084,12 +2135,12 @@
         card.onclick = () => openDrawer(job.id);
         card.innerHTML = `
           <div class="flex items-center justify-between text-[11px] text-gray-500 font-mono">
-            <span>${job.company}</span>
+            <span>${esc(job.company)}</span>
             <span class="font-bold text-gray-700">${job.score}%</span>
           </div>
-          <div class="font-semibold text-xs text-gray-900">${job.title}</div>
+          <div class="font-semibold text-xs text-gray-900">${esc(job.title)}</div>
           <div class="flex items-center justify-between pt-1 text-[10.5px]">
-            <span class="text-gray-400">${job.postedAt}</span>
+            <span class="text-gray-400">${esc(job.postedAt)}</span>
             ${job.humanApproved 
               ? '<span class="text-emerald-700 font-mono text-[10px]">Approved ✓</span>' 
               : '<span class="text-gray-500 font-mono text-[10px]">Review ›</span>'}
@@ -2106,21 +2157,21 @@
         <div class="bg-white rounded-2xl border border-[#EAEAEA] p-4 space-y-3 shadow-2xs">
           <div class="flex items-start justify-between">
             <div>
-              <span class="text-xs font-mono text-gray-400 block">${job.company}</span>
-              <h3 class="font-bold text-sm text-gray-900 mt-0.5">${job.contact.name}</h3>
-              <p class="text-xs text-gray-600">${job.contact.title}</p>
+              <span class="text-xs font-mono text-gray-400 block">${esc(job.company)}</span>
+              <h3 class="font-bold text-sm text-gray-900 mt-0.5">${esc(job.contact.name)}</h3>
+              <p class="text-xs text-gray-600">${esc(job.contact.title)}</p>
             </div>
-            <a href="${job.contact.linkedin}" target="_blank" class="text-xs font-mono text-blue-600 hover:underline">LinkedIn ↗</a>
+            <a href="${esc(safeUrl(job.contact.linkedin))}" target="_blank" class="text-xs font-mono text-blue-600 hover:underline">LinkedIn ↗</a>
           </div>
 
           <div class="pt-1 flex items-center justify-between">
             <span class="font-mono text-[10.5px] px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200">
-              ${job.contact.email ? '✓ ' + job.contact.email : '⚠ ' + job.contact.confidence}
+              ${esc(job.contact.email ? '✓ ' + job.contact.email : '⚠ ' + job.contact.confidence)}
             </span>
           </div>
 
           <div class="p-2.5 rounded-xl bg-gray-50 border border-dashed border-gray-200 text-xs text-gray-700 leading-relaxed font-mono">
-            ${job.outreachDraft}
+            ${esc(job.outreachDraft)}
           </div>
 
           <div class="flex items-center justify-between pt-1">
@@ -2248,11 +2299,9 @@
       currentSelectedJob.kanban_stage = "APPLIED";
       currentSelectedJob.userEditedResume = document.getElementById('drawer-tailored-resume-editor').value;
       currentSelectedJob.userEditedCoverLetter = document.getElementById('drawer-cover-letter-editor').value;
+      saveJobStatus(currentSelectedJob, currentSelectedJob.dbStatus === 'applied' ? 'applied' : 'reviewed', editedDrafts());
 
-      renderPastelMatches();
-      renderApplicationsTable();
-      renderDetailedQueue();
-      renderKanban();
+      refreshJobViews();
 
       showToast(`Application approved and marked Ready for ${currentSelectedJob.company}!`);
       closeDrawer();
@@ -2260,14 +2309,13 @@
 
     function approveAllStaged() {
       stagedJobs.forEach(j => {
+        if (liveMode && j.dbStatus !== 'new') return;
         j.humanApproved = true;
         j.status = "Approved / Ready";
         j.kanban_stage = "APPLIED";
+        saveJobStatus(j, 'reviewed');
       });
-      renderPastelMatches();
-      renderApplicationsTable();
-      renderDetailedQueue();
-      renderKanban();
+      refreshJobViews();
       showToast("Approved all staged applications!");
     }
 
@@ -2399,7 +2447,279 @@
       showToast("Filters reset");
     }
 
+    // ==========================================
+    // LIVE JOBS: daily scout run (6:30 AM) + "Run scout now", served by `main.py serve`
+    // Sample jobs stay on screen until a signed-in, allowed account loads real ones.
+    // ==========================================
+    let liveMode = false;
+    let scoutPollTimer = null;
+    const LIVE_PASTELS = [['#FFF1F2', '#FFE4E6'], ['#F0FDF4', '#DCFCE7'], ['#F5F3FF', '#EDE9FE'], ['#EFF6FF', '#DBEAFE'], ['#FFFBEB', '#FEF3C7']];
+    const LIVE_STATUS = {
+      new: { label: 'Needs you', stage: 'DRAFTED / APPLIED' },
+      reviewed: { label: 'Approved / Ready', stage: 'DRAFTED / APPLIED' },
+      applied: { label: 'Submitted', stage: 'APPLIED' },
+      skipped: { label: 'Skipped', stage: 'VIEWED' },
+    };
+
+    async function getAccessToken() {
+      if (!supabaseClient) return null;
+      try {
+        const { data } = await supabaseClient.auth.getSession();
+        return data && data.session ? data.session.access_token : null;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    async function apiFetch(path, options = {}) {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Showing sample jobs. Sign in with your Job Scout account (email and password) to load jobs from the daily run.');
+      const headers = { Authorization: `Bearer ${token}` };
+      if (options.body) headers['Content-Type'] = 'application/json';
+      const res = await fetch(path, { ...options, headers });
+      const data = await res.json().catch(() => null);
+      if (!data) throw new Error('This page is not connected to the Job Scout server. Open it from `python main.py serve`.');
+      if (!res.ok) throw new Error(data.error || `Server error (HTTP ${res.status})`);
+      return data;
+    }
+
+    function relativeDay(value) {
+      const date = new Date(value);
+      if (!value || isNaN(date)) return value || '';
+      const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(date).setHours(0, 0, 0, 0)) / 86400000);
+      return days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days} days ago`;
+    }
+
+    function shortTime(value) {
+      return new Date(value).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+    }
+
+    function toDashboardJob(row, idx) {
+      const dbStatus = LIVE_STATUS[row.status] ? row.status : 'new';
+      const [bg, border] = LIVE_PASTELS[idx % LIVE_PASTELS.length];
+      const keywords = Array.isArray(row.matched_keywords) ? row.matched_keywords : [];
+      return {
+        id: `db-${row.id}`,
+        dbId: row.id,
+        dbStatus,
+        processedAt: row.processed_at,
+        title: row.job_title || 'Untitled role',
+        company: row.company || 'Unknown company',
+        location: row.location || '',
+        postedAt: relativeDay(row.posted_at),
+        score: Number(row.score) || 0,
+        status: LIVE_STATUS[dbStatus].label,
+        kanban_stage: LIVE_STATUS[dbStatus].stage,
+        pastelBg: bg,
+        pastelBorder: border,
+        tags: keywords.slice(0, 3),
+        reason: row.reason || '',
+        contact: { name: 'No contact looked up', title: '', email: '', confidence: 'Contact lookup is not part of the daily run', linkedin: safeUrl(row.job_url) },
+        resume_diff: { role_header: 'Tailored by the daily scout run', removed: '', added: '' },
+        matchedKeywords: keywords,
+        gapKeywords: [],
+        outreachDraft: '',
+        coverLetter: row.cover_letter || '',
+        tailoredResume: row.tailored_resume || '',
+        humanApproved: dbStatus === 'reviewed' || dbStatus === 'applied',
+        latex_pdf: '',
+        link: safeUrl(row.job_url),
+      };
+    }
+
+    // Top Match cards: in live mode, the 5 best jobs still waiting for review
+    function topMatchJobs() {
+      if (!liveMode) return stagedJobs;
+      return stagedJobs.filter(j => j.dbStatus === 'new').sort((a, b) => b.score - a.score).slice(0, 5);
+    }
+
+    function refreshJobViews() {
+      renderPastelMatches();
+      renderApplicationsTable();
+      renderDetailedQueue();
+      renderKanban();
+      renderLushaGrid();
+      if (!liveMode) return;
+      document.getElementById('staged-count-badge').innerText = `${topMatchJobs().length} Staged`;
+      renderMorningSummary();
+    }
+
+    async function loadLiveJobs() {
+      let data;
+      try {
+        data = await apiFetch('/api/jobs');
+        if (!Array.isArray(data.jobs)) throw new Error('This page is not connected to the Job Scout server.');
+      } catch (err) {
+        showMorningSummaryMessage(err.message);
+        return;
+      }
+      liveMode = true;
+      stagedJobs.length = 0;
+      data.jobs.filter(row => row.status !== 'skipped').forEach((row, idx) => stagedJobs.push(toDashboardJob(row, idx)));
+      refreshJobViews();
+      refreshScoutStatus();
+    }
+
+    function showMorningSummaryMessage(message) {
+      document.getElementById('morning-summary').classList.remove('hidden');
+      document.getElementById('morning-summary-count').innerText = 'Sample data';
+      document.getElementById('morning-summary-meta').innerText = message;
+      document.getElementById('morning-summary-list').innerHTML = '';
+      document.getElementById('scout-run-btn').disabled = true;
+    }
+
+    function renderMorningSummary() {
+      document.getElementById('morning-summary').classList.remove('hidden');
+      const today = new Date().toDateString();
+      const fresh = stagedJobs.filter(j => j.processedAt && new Date(j.processedAt).toDateString() === today);
+      const waiting = stagedJobs.filter(j => j.dbStatus === 'new');
+      document.getElementById('morning-summary-count').innerText = `${fresh.length} new today · ${waiting.length} to review`;
+      const list = fresh.length ? fresh : waiting.slice(0, 5);
+      document.getElementById('morning-summary-list').innerHTML = list.length
+        ? list.map(job => `
+          <div class="py-2.5 flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-xs font-semibold text-gray-900 truncate">${esc(job.company)} <span class="text-gray-300">·</span> <span class="font-medium text-gray-700">${esc(job.title)}</span></div>
+              <div class="text-[11px] text-gray-500 truncate">${esc(job.location)}${job.postedAt ? ' · posted ' + esc(job.postedAt.toLowerCase()) : ''} · ${esc(job.status)}</div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <span class="font-mono text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200 font-semibold">${job.score}%</span>
+              <button onclick="openDrawer('${job.id}')" class="px-2.5 py-1 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 text-[11px] font-medium smooth-transition">Review ›</button>
+            </div>
+          </div>`).join('')
+        : '<p class="py-3 text-xs text-gray-500">No new jobs yet today. The next scheduled run adds them here, or click Run scout now.</p>';
+    }
+
+    function renderScoutStatus(status) {
+      const last = status.last_run;
+      const parts = [];
+      if (!last) parts.push('No scout run yet');
+      else if (last.error) parts.push(`Last run ${shortTime(last.started_at)} (${last.trigger === 'schedule' ? 'scheduled' : 'manual'}) failed: ${last.error}`);
+      else parts.push(`Last run ${shortTime(last.started_at)} (${last.trigger === 'schedule' ? 'scheduled' : 'manual'}) added ${last.new_jobs} job${last.new_jobs === 1 ? '' : 's'}`);
+      if (status.next_run) parts.push(`next run ${shortTime(status.next_run)}`);
+      document.getElementById('morning-summary-meta').innerText = parts.join(' · ');
+
+      const running = !!status.running;
+      document.getElementById('scout-run-btn').disabled = running;
+      document.getElementById('scout-run-label').innerText = running ? 'Scout running…' : 'Run scout now';
+      document.getElementById('scout-run-icon').classList.toggle('animate-spin', running);
+      const logEl = document.getElementById('scout-run-log');
+      const lastLine = (status.log || []).slice(-1)[0] || '';
+      logEl.innerText = lastLine;
+      logEl.classList.toggle('hidden', !running || !lastLine);
+    }
+
+    async function refreshScoutStatus() {
+      let status;
+      try {
+        status = await apiFetch('/api/scout/status');
+      } catch (err) {
+        return;
+      }
+      renderScoutStatus(status);
+      if (status.running && !scoutPollTimer) scoutPollTimer = setInterval(pollScoutRun, 4000);
+    }
+
+    async function pollScoutRun() {
+      let status;
+      try {
+        status = await apiFetch('/api/scout/status');
+      } catch (err) {
+        return;
+      }
+      renderScoutStatus(status);
+      if (status.running) return;
+      clearInterval(scoutPollTimer);
+      scoutPollTimer = null;
+      const last = status.last_run || {};
+      showToast(last.error ? `Scout run failed: ${last.error}` : `Scout run finished: ${last.new_jobs} new job${last.new_jobs === 1 ? '' : 's'}`);
+      loadLiveJobs();
+    }
+
+    async function runScoutNow() {
+      try {
+        renderScoutStatus(await apiFetch('/api/scout/run', { method: 'POST' }));
+      } catch (err) {
+        showToast(err.message);
+        return;
+      }
+      showToast('Scout run started. New jobs appear here in a few minutes.');
+      if (!scoutPollTimer) scoutPollTimer = setInterval(pollScoutRun, 4000);
+    }
+
+    // Saves a review decision to Supabase (no-op for sample jobs)
+    async function saveJobStatus(job, status, extra = {}) {
+      if (!liveMode || !job.dbId) return;
+      job.dbStatus = status;
+      try {
+        await apiFetch(`/api/jobs/${job.dbId}`, { method: 'POST', body: JSON.stringify({ status, ...extra }) });
+      } catch (err) {
+        showToast(`Could not save ${job.company}: ${err.message}`);
+      }
+    }
+
+    function editedDrafts() {
+      return {
+        tailored_resume: document.getElementById('drawer-tailored-resume-editor').value,
+        cover_letter: document.getElementById('drawer-cover-letter-editor').value,
+      };
+    }
+
+    function markApplied() {
+      const job = currentSelectedJob;
+      if (!job) return;
+      job.humanApproved = true;
+      job.status = 'Submitted';
+      job.kanban_stage = 'APPLIED';
+      saveJobStatus(job, 'applied', editedDrafts());
+      refreshJobViews();
+      showToast(`Marked ${job.company} as applied.`);
+      closeDrawer();
+    }
+
+    function skipJob() {
+      const job = currentSelectedJob;
+      if (!job) return;
+      saveJobStatus(job, 'skipped');
+      const idx = stagedJobs.indexOf(job);
+      if (idx >= 0) stagedJobs.splice(idx, 1);
+      refreshJobViews();
+      showToast(`Skipped ${job.company}.`);
+      closeDrawer();
+    }
+
+    function initLiveData() {
+      if (!supabaseClient) {
+        if (currentUser) showMorningSummaryMessage('Showing sample jobs. The Supabase client did not load, so daily-run jobs are unavailable.');
+        return;
+      }
+      supabaseClient.auth.onAuthStateChange((event, session) => {
+        if (!session || !session.user) return;
+        if (!currentUser) {
+          const meta = session.user.user_metadata || {};
+          currentUser = {
+            name: meta.full_name || meta.name || session.user.email.split('@')[0],
+            email: session.user.email,
+            role: "APM",
+            provider: (session.user.app_metadata && session.user.app_metadata.provider) || "Email"
+          };
+          localStorage.setItem("job_scout_current_user", JSON.stringify(currentUser));
+          renderAuthHeader();
+          closeAuthModal();
+        }
+        // Defer: Supabase warns against awaiting its own calls inside this callback
+        if (!liveMode && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) setTimeout(loadLiveJobs, 0);
+      });
+      getAccessToken().then(token => {
+        if (!token && currentUser) showMorningSummaryMessage('Showing sample jobs. Sign in with your Job Scout account (email and password) to load jobs from the daily run.');
+      });
+    }
+
     function triggerScoutCycle() {
+      if (liveMode) {
+        runScoutNow();
+        return;
+      }
       showToast("LinkedIn Scraper: curious_coder~linkedin-jobs-scraper running (<72h filter)…");
     }
 
@@ -2513,6 +2833,7 @@
       renderDetailedQueue();
       renderKanban();
       renderLushaGrid();
+      initLiveData();
       playTabEntrance(document.getElementById('tab-dashboard'));
     });
   </script>

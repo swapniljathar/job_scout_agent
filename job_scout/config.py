@@ -27,9 +27,11 @@ class Settings:
     apify_token: str = os.getenv("APIFY_API_TOKEN", "")
     apify_actor_id: str = os.getenv("APIFY_ACTOR_ID", "curious_coder~linkedin-jobs-scraper")
 
-    # Storage
+    # Storage. On the server SUPABASE_KEY should be the secret key (sb_secret_...): the jobs table is
+    # locked to it. The publishable key is only used to verify dashboard logins.
     supabase_url: str = os.getenv("SUPABASE_URL", "https://advkivbiwhwpncyomcei.supabase.co/rest/v1/")
     supabase_key: str = os.getenv("SUPABASE_KEY", "sb_publishable_9hgSwmou0V8xdADTAG-mjw_3fFL3Z_t")
+    supabase_publishable_key: str = os.getenv("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_9hgSwmou0V8xdADTAG-mjw_3fFL3Z_t")
     ledger_file: Path = PROJECT_ROOT / "job_ledger.json"
 
     # Enrichment / LLM
@@ -43,8 +45,18 @@ class Settings:
     use_docling: bool = os.getenv("USE_DOCLING", "true").lower() not in ("0", "false", "no")
     max_resume_bytes: int = int(os.getenv("MAX_RESUME_BYTES", str(10 * 1024 * 1024)))
 
-    # Web server
+    # Web server. Only these dashboard logins can see jobs or start a scout run.
     port: int = int(os.getenv("PORT", "8080"))
+    allowed_emails: tuple = tuple(e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "").split(",") if e.strip())
+
+    # Daily scout run (built into `main.py serve`)
+    scout_schedule_enabled: bool = os.getenv("SCOUT_SCHEDULE", "true").lower() not in ("0", "false", "no")
+    scout_daily_time: str = os.getenv("SCOUT_DAILY_TIME", "06:30")
+    scout_timezone: str = os.getenv("SCOUT_TIMEZONE", "Asia/Kolkata")
+    scout_query: str = os.getenv("SCOUT_QUERY", "AI Product Manager")
+    scout_location: str = os.getenv("SCOUT_LOCATION", "Pune, Maharashtra, India")
+    scout_max_jobs: int = int(os.getenv("SCOUT_MAX_JOBS", "5"))
+    scout_state_file: Path = PROJECT_ROOT / "scout_state.json"
 
 
 settings = Settings()

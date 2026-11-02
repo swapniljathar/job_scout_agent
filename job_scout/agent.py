@@ -19,6 +19,10 @@ from job_scout.utils import sanitize_slug
 
 logger = logging.getLogger(__name__)
 
+
+class ScoutError(RuntimeError):
+    """The daily run could not fetch jobs (e.g. missing Apify token or a failed crawler run)."""
+
 FALLBACK_RESUME = "Swapnil Jathar - Associate Product Manager | AI Systems"
 
 
@@ -112,7 +116,7 @@ class JobScoutAgent:
 
     # ---------------- Daily run ----------------
     def run_daily(self, criteria=None):
-        """Headless daily pipeline (formerly daily_job_scout.py). Returns processed jobs."""
+        """Headless daily pipeline (formerly daily_job_scout.py). Returns processed jobs; raises ScoutError."""
         criteria = criteria or ScoutCriteria()
         log = self.log
         log("=" * 60)
@@ -134,7 +138,7 @@ class JobScoutAgent:
         )
         if err:
             log(f"⚠️ Apify notice: {err}")
-            return []
+            raise ScoutError(err)
         log(f"✓ Parsed & cleaned {len(jobs)} job listings.")
 
         new_jobs = check_supabase_duplicates(jobs)
@@ -152,7 +156,7 @@ class JobScoutAgent:
             log(f"  ✓ Saved ATS Text: {tailored.txt_file}")
             log(f"  ✓ Saved Cover Letter: {tailored.cover_file}")
 
-            stored, s_err = store_job_in_supabase(job)
+            stored, s_err = store_job_in_supabase(job, tailored)
             log("  ✓ Stored record in Supabase." if stored else f"  ⚠️ Supabase store note: {s_err}")
             processed.append(job)
 

@@ -1,0 +1,18 @@
+# systemd unit: Job Scout dashboard + daily scout run (6:30 AM, see SCOUT_DAILY_TIME in .env)
+# Replace YOUR_VM_USER with your VM username (run `whoami` on the VM), then:
+#   sudo cp deploy/job-scout.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now job-scout
+[Unit]
+Description=Job Scout Agent (dashboard + daily scout run)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=YOUR_VM_USER
+WorkingDirectory=/home/YOUR_VM_USER/job_scout_agent
+ExecStart=/home/YOUR_VM_USER/job_scout_agent/venv/bin/python main.py serve
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

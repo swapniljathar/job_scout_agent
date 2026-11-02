@@ -231,6 +231,31 @@ Job Scout Agent is engineered from the ground up to protect your sensitive perso
 | **Firebase Hosting** | Firebase CLI | `firebase deploy --only hosting` (configure `public: "."`) |
 | **Render / Railway** | Python Web Service | Start command: `python3 main.py serve` (binds to `PORT`) |
 | **Streamlit Community Cloud** | Streamlit App | Connect GitHub repo and point entry to `app.py` |
+| **Google Cloud VM** (recommended) | systemd service | See below: dashboard + daily 6:30 AM scout run in one always-on process |
+
+### Google Cloud VM: daily scout + dashboard
+
+`python main.py serve` serves the dashboard **and** runs the scout every day at `SCOUT_DAILY_TIME`
+(default 06:30 Asia/Kolkata). If the VM was off at that time, the run starts as soon as the server is back that day.
+After signing in, the dashboard shows **This Morning's Scout** (new jobs and jobs waiting for review) and a
+**Run scout now** button. Review each job in the drawer, then **Approve**, **Mark applied** or **Skip**; decisions are saved to Supabase.
+
+1. Run `supabase_schema.sql` in the Supabase SQL Editor (adds the review columns and locks the table).
+2. On the VM (Debian/Ubuntu):
+   ```bash
+   sudo apt update && sudo apt install -y git python3-venv
+   git clone https://github.com/swapniljathar/job_scout_agent.git ~/job_scout_agent
+   cd ~/job_scout_agent && python3 -m venv venv && venv/bin/pip install -r requirements.txt
+   cp .env.example .env && nano .env      # APIFY_API_TOKEN, SUPABASE_KEY (secret), GEMINI_API_KEY, ALLOWED_EMAILS
+   nano master_resume.md                  # paste your master resume
+   ```
+3. Install the service (first replace `YOUR_VM_USER` in `deploy/job-scout.service` with your VM username):
+   ```bash
+   sudo cp deploy/job-scout.service /etc/systemd/system/job-scout.service
+   sudo systemctl daemon-reload && sudo systemctl enable --now job-scout
+   journalctl -u job-scout -f             # live logs
+   ```
+4. Open the firewall for the port (`PORT`, default 8080) and visit `http://<VM external IP>:8080`.
 
 ---
 

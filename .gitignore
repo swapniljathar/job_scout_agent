@@ -8,6 +8,7 @@ ENV/
 master_resume.md
 master_resume.txt
 job_ledger.json
+scout_state.json
 resumes/
 email_digest_*.html
 *.pdf

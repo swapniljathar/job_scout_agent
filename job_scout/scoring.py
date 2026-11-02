@@ -42,4 +42,6 @@ def score_jobs(jobs, resume_text, must_haves, excludes, target_roles):
     """Scores jobs in place (adds 'score' and 'why') and returns them sorted best-first."""
     for job in jobs:
         job["score"], job["why"] = score_job(job, resume_text, must_haves, excludes, target_roles)
+        text = f"{job.get('title', '')} {job.get('jobDescription', '')}".lower()
+        job["matched"] = [kw.strip() for kw in must_haves if kw.strip() and kw.strip().lower() in text]
     return sorted(jobs, key=lambda j: j["score"], reverse=True)
