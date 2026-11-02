@@ -411,6 +411,25 @@
             <span id="scout-run-label">Run scout now</span>
           </button>
         </div>
+        <div id="scout-settings" class="hidden flex flex-col lg:flex-row lg:items-end gap-2 pb-3 border-b border-gray-100">
+          <label class="flex-1 min-w-0">
+            <span class="block text-[10.5px] text-gray-500 mb-1">Role to search</span>
+            <input id="scout-query-input" type="text" maxlength="120" placeholder="e.g. Product Manager" class="w-full px-3 py-1.5 rounded-full border border-gray-300 bg-white text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400">
+          </label>
+          <label class="flex-1 min-w-0">
+            <span class="block text-[10.5px] text-gray-500 mb-1">Location</span>
+            <input id="scout-location-input" type="text" maxlength="120" placeholder="e.g. Pune, Maharashtra, India" class="w-full px-3 py-1.5 rounded-full border border-gray-300 bg-white text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400">
+          </label>
+          <label class="flex-1 min-w-0">
+            <span class="block text-[10.5px] text-gray-500 mb-1">Must-have keywords (comma-separated, optional)</span>
+            <input id="scout-keywords-input" type="text" maxlength="500" placeholder="e.g. Python, SQL, Agile" class="w-full px-3 py-1.5 rounded-full border border-gray-300 bg-white text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400">
+          </label>
+          <label class="flex items-center gap-1.5 text-[11px] text-gray-600 shrink-0 py-1.5">
+            <input id="scout-daily-input" type="checkbox" class="rounded border-gray-300">
+            <span id="scout-daily-label">Daily morning run</span>
+          </label>
+          <button onclick="saveScoutSettings()" class="px-4 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 text-xs font-medium smooth-transition shrink-0">Save search</button>
+        </div>
         <div id="morning-summary-list" class="divide-y divide-gray-100"></div>
         <p id="scout-run-log" class="hidden text-[11px] font-mono text-gray-500 truncate"></p>
       </div>
@@ -678,7 +697,7 @@
               <span id="resume-word-count" class="text-[10.5px] font-mono text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">1,120 words</span>
             </div>
             <div class="flex items-center gap-2">
-              <button onclick="resetMasterResume()" class="text-xs text-gray-500 hover:text-gray-900 underline">Reset to Default</button>
+              <button id="reset-resume-btn" onclick="resetMasterResume()" class="text-xs text-gray-500 hover:text-gray-900 underline">Reset to Default</button>
               <button onclick="downloadMasterResume()" class="text-xs text-blue-600 hover:text-blue-800 underline">Export .md</button>
             </div>
           </div>
@@ -1796,6 +1815,10 @@
       const textarea = document.getElementById('master-resume-textarea');
       if (textarea) {
         currentMasterResume = textarea.value;
+        if (liveMode) {
+          saveProfile({ master_resume: currentMasterResume }, 'Master resume saved. Your daily scout run tailors from it.');
+          return;
+        }
         localStorage.setItem("job_scout_master_resume", currentMasterResume);
         showToast("Master resume saved! Ready to tailor applications.");
       }
@@ -1824,13 +1847,20 @@
     // Resume import: server-side Docling parsing via /api/resume/parse, local text fallback for static hosting
     function applyParsedResume(text, label) {
       currentMasterResume = text;
-      localStorage.setItem("job_scout_master_resume", currentMasterResume);
       initMasterResume();
+      if (liveMode) {
+        saveProfile({ master_resume: text }, `${label}. Saved as your master resume.`);
+        return;
+      }
+      localStorage.setItem("job_scout_master_resume", currentMasterResume);
       showToast(label);
     }
 
     async function postResumeParse(body, query, contentType) {
-      const res = await fetch('/api/resume/parse' + query, { method: 'POST', headers: { 'Content-Type': contentType }, body });
+      const headers = { 'Content-Type': contentType };
+      const token = await getAccessToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch('/api/resume/parse' + query, { method: 'POST', headers, body });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Parser returned HTTP ${res.status}`);
       return data;
@@ -2453,6 +2483,7 @@
     // ==========================================
     let liveMode = false;
     let scoutPollTimer = null;
+    let profile = null;
     const LIVE_PASTELS = [['#FFF1F2', '#FFE4E6'], ['#F0FDF4', '#DCFCE7'], ['#F5F3FF', '#EDE9FE'], ['#EFF6FF', '#DBEAFE'], ['#FFFBEB', '#FEF3C7']];
     const LIVE_STATUS = {
       new: { label: 'Needs you', stage: 'DRAFTED / APPLIED' },
@@ -2556,8 +2587,58 @@
       liveMode = true;
       stagedJobs.length = 0;
       data.jobs.filter(row => row.status !== 'skipped').forEach((row, idx) => stagedJobs.push(toDashboardJob(row, idx)));
+      await loadProfile();
       refreshJobViews();
       refreshScoutStatus();
+    }
+
+    // Each user's master resume and search live in their server-side profile
+    async function loadProfile() {
+      try {
+        profile = await apiFetch('/api/profile');
+      } catch (err) {
+        showToast(`Could not load your profile: ${err.message}`);
+        return;
+      }
+      currentMasterResume = profile.master_resume;
+      initMasterResume();
+      const textarea = document.getElementById('master-resume-textarea');
+      textarea.placeholder = 'Upload your resume above, or paste it here and click Save Master Resume.';
+      document.getElementById('reset-resume-btn').classList.add('hidden');
+      document.getElementById('scout-query-input').value = profile.search_query;
+      document.getElementById('scout-location-input').value = profile.search_location;
+      document.getElementById('scout-keywords-input').value = profile.keywords;
+      document.getElementById('scout-daily-input').checked = profile.daily_enabled;
+      document.getElementById('scout-settings').classList.remove('hidden');
+    }
+
+    async function saveProfile(fields, message) {
+      try {
+        await apiFetch('/api/profile', { method: 'POST', body: JSON.stringify(fields) });
+      } catch (err) {
+        showToast(`Could not save: ${err.message}`);
+        return false;
+      }
+      if (profile) Object.assign(profile, fields);
+      showToast(message);
+      renderMorningSummary();
+      refreshScoutStatus();
+      return true;
+    }
+
+    function saveScoutSettings() {
+      const query = document.getElementById('scout-query-input').value.trim();
+      const location = document.getElementById('scout-location-input').value.trim();
+      if (!query || !location) {
+        showToast('Enter a role and a location to search.');
+        return;
+      }
+      saveProfile({
+        search_query: query,
+        search_location: location,
+        keywords: document.getElementById('scout-keywords-input').value.trim(),
+        daily_enabled: document.getElementById('scout-daily-input').checked,
+      }, 'Search saved. The next scout run uses it.');
     }
 
     function showMorningSummaryMessage(message) {
@@ -2587,7 +2668,9 @@
               <button onclick="openDrawer('${job.id}')" class="px-2.5 py-1 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 text-[11px] font-medium smooth-transition">Review ›</button>
             </div>
           </div>`).join('')
-        : '<p class="py-3 text-xs text-gray-500">No new jobs yet today. The next scheduled run adds them here, or click Run scout now.</p>';
+        : profile && !profile.master_resume.trim()
+          ? '<p class="py-3 text-xs text-gray-500">Welcome! Add your resume on the <button onclick="switchTab(\'resume\')" class="text-blue-600 underline">My Resume</button> tab and set the role and location above. The scout then finds matching LinkedIn jobs and drafts a tailored resume and cover letter for each.</p>'
+          : '<p class="py-3 text-xs text-gray-500">No new jobs yet today. The next scheduled run adds them here, or click Run scout now.</p>';
     }
 
     function renderScoutStatus(status) {
@@ -2596,12 +2679,16 @@
       if (!last) parts.push('No scout run yet');
       else if (last.error) parts.push(`Last run ${shortTime(last.started_at)} (${last.trigger === 'schedule' ? 'scheduled' : 'manual'}) failed: ${last.error}`);
       else parts.push(`Last run ${shortTime(last.started_at)} (${last.trigger === 'schedule' ? 'scheduled' : 'manual'}) added ${last.new_jobs} job${last.new_jobs === 1 ? '' : 's'}`);
-      if (status.next_run) parts.push(`next run ${shortTime(status.next_run)}`);
+      if (status.next_run && profile && profile.daily_enabled) parts.push(`next run ${shortTime(status.next_run)}`);
+      if (typeof status.manual_runs_left === 'number' && profile) profile.manual_runs_left = status.manual_runs_left;
+      if (profile) parts.push(`${profile.manual_runs_left} manual run${profile.manual_runs_left === 1 ? '' : 's'} left today`);
       document.getElementById('morning-summary-meta').innerText = parts.join(' · ');
+      if (status.schedule) document.getElementById('scout-daily-label').innerText = `Daily run at ${status.schedule.split(' ')[0]}`;
 
-      const running = !!status.running;
+      const running = !!(status.running || status.queued);
       document.getElementById('scout-run-btn').disabled = running;
-      document.getElementById('scout-run-label').innerText = running ? 'Scout running…' : 'Run scout now';
+      document.getElementById('scout-run-label').innerText = status.running ? 'Scout running…'
+        : status.queued ? `Waiting in line (${status.queued})…` : 'Run scout now';
       document.getElementById('scout-run-icon').classList.toggle('animate-spin', running);
       const logEl = document.getElementById('scout-run-log');
       const lastLine = (status.log || []).slice(-1)[0] || '';
@@ -2617,7 +2704,7 @@
         return;
       }
       renderScoutStatus(status);
-      if (status.running && !scoutPollTimer) scoutPollTimer = setInterval(pollScoutRun, 4000);
+      if ((status.running || status.queued) && !scoutPollTimer) scoutPollTimer = setInterval(pollScoutRun, 4000);
     }
 
     async function pollScoutRun() {
@@ -2628,7 +2715,7 @@
         return;
       }
       renderScoutStatus(status);
-      if (status.running) return;
+      if (status.running || status.queued) return;
       clearInterval(scoutPollTimer);
       scoutPollTimer = null;
       const last = status.last_run || {};

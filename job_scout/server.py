@@ -5,14 +5,17 @@ Routes:
   GET  /                         → job-hunt-dashboard.html
   GET  /favicon.svg|ico          → favicon
   GET  /api/health               → {"ok": true, "docling": bool}
+
+Signed-in routes (Authorization: Bearer <Supabase access token>; any account, or only ALLOWED_EMAILS if set).
+Every user sees and changes only their own profile and jobs:
   POST /api/resume/parse?filename=resume.pdf   (raw file bytes as body)
   POST /api/resume/parse         {"url": "<document link>"}  (application/json)
-
-Signed-in routes (Authorization: Bearer <Supabase access token>, email must be in ALLOWED_EMAILS):
+  GET  /api/profile              → master resume, search settings, daily run on/off, manual runs left today
+  POST /api/profile              {"master_resume"?, "search_query"?, "search_location"?, "keywords"?, "daily_enabled"?}
   GET  /api/jobs                 → {"jobs": [...]} processed in the last 30 days
   POST /api/jobs/<id>            {"status": "reviewed|applied|skipped|new", "tailored_resume"?, "cover_letter"?}
-  GET  /api/scout/status         → running run, last run, next scheduled run, recent log lines
-  POST /api/scout/run            → starts a run now (409 if one is already running)
+  GET  /api/scout/status         → the user's running/queued run, last run, next scheduled run, recent log lines
+  POST /api/scout/run            → queues a run now (400 without a resume, 409 if already queued, 429 over the daily limit)
 """
 import json
 import logging
@@ -26,19 +29,19 @@ import requests
 
 from job_scout.config import PROJECT_ROOT, settings
 from job_scout.resume_parser import ResumeParseError, docling_available, parse_resume_bytes, parse_resume_link
-from job_scout.scheduler import runner
-from job_scout.storage import JOB_STATUSES, list_jobs, update_job
+from job_scout.scheduler import runner, today
+from job_scout.storage import JOB_STATUSES, PROFILE_FIELDS, get_profile, list_jobs, save_profile, update_job
 
 logger = logging.getLogger(__name__)
 
-_token_cache = {}  # access token -> (email, expires_at)
+_token_cache = {}  # access token -> (user, expires_at)
 _token_lock = threading.Lock()
+MAX_RESUME_CHARS = 100_000
+PROFILE_TEXT_LIMITS = {"search_query": 120, "search_location": 120, "keywords": 500}
 
 
 def verify_login(auth_header):
-    """Returns (email, error). Checks the Supabase access token and the ALLOWED_EMAILS list."""
-    if not settings.allowed_emails:
-        return None, "Set ALLOWED_EMAILS in the server's .env to your dashboard login email."
+    """Returns ({"id", "email"}, error). Checks the Supabase access token and, if set, ALLOWED_EMAILS."""
     token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
     if not token:
         return None, "Sign in to see your jobs."
@@ -46,7 +49,7 @@ def verify_login(auth_header):
     with _token_lock:
         cached = _token_cache.get(token)
     if cached and cached[1] > time.time():
-        email = cached[0]
+        user = cached[0]
     else:
         auth_url = settings.supabase_url.split("/rest/v1")[0].rstrip("/") + "/auth/v1/user"
         try:
@@ -56,13 +59,35 @@ def verify_login(auth_header):
             return None, f"Could not reach Supabase to check your login: {err}"
         if response.status_code != 200:
             return None, "Your session has expired. Sign in again."
-        email = (response.json().get("email") or "").lower()
+        data = response.json()
+        user = {"id": data.get("id"), "email": (data.get("email") or "").lower()}
+        if not user["id"]:
+            return None, "Your session has expired. Sign in again."
         with _token_lock:
-            _token_cache[token] = (email, time.time() + 300)
+            if len(_token_cache) > 1000:
+                _token_cache.clear()
+            _token_cache[token] = (user, time.time() + 300)
 
-    if email not in settings.allowed_emails:
-        return None, f"{email or 'This account'} is not allowed on this server (ALLOWED_EMAILS)."
-    return email, None
+    if settings.allowed_emails and user["email"] not in settings.allowed_emails:
+        return None, f"{user['email'] or 'This account'} is not allowed on this server (ALLOWED_EMAILS)."
+    return user, None
+
+
+def profile_payload(user, profile):
+    """The profile as the dashboard sees it, with defaults for a user who hasn't saved one yet."""
+    profile = profile or {}
+    used = (profile.get("manual_runs_count") or 0) if profile.get("manual_runs_date") == today().isoformat() else 0
+    return {
+        "email": user["email"],
+        "master_resume": profile.get("master_resume") or "",
+        "search_query": profile.get("search_query") or settings.scout_query,
+        "search_location": profile.get("search_location") or settings.scout_location,
+        "keywords": profile.get("keywords") or "",
+        "daily_enabled": profile.get("daily_enabled", True) is not False,
+        "manual_runs_left": max(settings.scout_manual_runs_per_day - used, 0),
+        "manual_runs_per_day": settings.scout_manual_runs_per_day,
+        "_used": used,
+    }
 
 HTML_FILE = PROJECT_ROOT / "job-hunt-dashboard.html"
 FAVICON_FILE = PROJECT_ROOT / "favicon.svg"
@@ -108,10 +133,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._serve_file(HTML_FILE, 'text/html; charset=utf-8', is_cached=False, include_body=include_body)
 
     def _require_login(self):
-        email, err = verify_login(self.headers.get('Authorization', ''))
+        user, err = verify_login(self.headers.get('Authorization', ''))
         if err:
             self._send_json(403 if "not allowed" in err else 401, {"error": err})
-        return email
+        return user
+
+    def _load_profile(self, user):
+        """Returns the user's profile payload, or None after sending a 502."""
+        profile, err = get_profile(user["id"])
+        if err:
+            self._send_json(502, {"error": err})
+            return None
+        return profile_payload(user, profile)
 
     def _read_json(self, limit=1024 * 1024):
         length = int(self.headers.get('Content-Length') or 0)
@@ -124,15 +157,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == '/api/health':
             self._send_json(200, {"ok": True, "docling": docling_available()})
         elif path == '/api/jobs':
-            if self._require_login():
-                rows, err = list_jobs()
+            user = self._require_login()
+            if user:
+                rows, err = list_jobs(user["id"])
                 if err:
                     self._send_json(502, {"error": err})
                 else:
                     self._send_json(200, {"jobs": rows})
+        elif path == '/api/profile':
+            user = self._require_login()
+            profile = user and self._load_profile(user)
+            if profile:
+                profile.pop("_used")
+                self._send_json(200, profile)
         elif path == '/api/scout/status':
-            if self._require_login():
-                self._send_json(200, runner.status())
+            user = self._require_login()
+            if user:
+                self._send_json(200, runner.status(user["id"]))
         elif path.startswith('/api/'):
             self._send_json(404, {"error": "Not found"})
         else:
@@ -144,19 +185,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed_url = urllib.parse.urlparse(self.path)
         if parsed_url.path == '/api/scout/run':
-            if self._require_login():
-                if runner.start("manual"):
-                    self._send_json(202, runner.status())
-                else:
-                    self._send_json(409, {"error": "A scout run is already in progress."})
+            user = self._require_login()
+            if user:
+                self._start_run(user)
+            return
+        if parsed_url.path == '/api/profile':
+            user = self._require_login()
+            if user:
+                self._save_profile(user)
             return
         job_match = re.fullmatch(r'/api/jobs/(\d+)', parsed_url.path)
         if job_match:
-            if self._require_login():
-                self._update_job(int(job_match.group(1)))
+            user = self._require_login()
+            if user:
+                self._update_job(int(job_match.group(1)), user)
             return
         if parsed_url.path != '/api/resume/parse':
             self._send_json(404, {"error": "Not found"})
+            return
+        if not self._require_login():
             return
 
         length = int(self.headers.get('Content-Length') or 0)
@@ -189,7 +236,52 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         self._send_json(200, result.to_dict())
 
-    def _update_job(self, job_id):
+    def _start_run(self, user):
+        profile = self._load_profile(user)
+        if not profile:
+            return
+        if not profile["master_resume"].strip():
+            self._send_json(400, {"error": "Add your master resume on the My Resume tab first."})
+            return
+        if profile["manual_runs_left"] <= 0:
+            self._send_json(429, {"error": f"You've used today's {settings.scout_manual_runs_per_day} manual runs. "
+                                           "The daily run still adds new jobs every morning."})
+            return
+        if not runner.start(user["id"], "manual"):
+            self._send_json(409, {"error": "Your scout run is already in progress."})
+            return
+        save_profile(user["id"], {"email": user["email"], "manual_runs_date": today().isoformat(),
+                                  "manual_runs_count": profile["_used"] + 1})
+        self._send_json(202, dict(runner.status(user["id"]), manual_runs_left=profile["manual_runs_left"] - 1))
+
+    def _save_profile(self, user):
+        try:
+            body = self._read_json(limit=2 * 1024 * 1024)
+        except ValueError as err:
+            self._send_json(400, {"error": str(err) or "Invalid JSON."})
+            return
+        fields = {k: body[k] for k in PROFILE_FIELDS if k in body}
+        for key, value in fields.items():
+            if key == "daily_enabled":
+                if not isinstance(value, bool):
+                    self._send_json(400, {"error": "daily_enabled must be true or false."})
+                    return
+            elif not isinstance(value, str):
+                self._send_json(400, {"error": f"{key} must be text."})
+                return
+            elif len(value) > PROFILE_TEXT_LIMITS.get(key, MAX_RESUME_CHARS):
+                self._send_json(400, {"error": f"{key} is too long."})
+                return
+        if not fields:
+            self._send_json(400, {"error": "Nothing to update."})
+            return
+        ok, err = save_profile(user["id"], dict(fields, email=user["email"]))
+        if ok:
+            self._send_json(200, {"ok": True})
+        else:
+            self._send_json(502, {"error": err})
+
+    def _update_job(self, job_id, user):
         try:
             body = self._read_json()
         except ValueError as err:
@@ -202,9 +294,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if not fields:
             self._send_json(400, {"error": "Nothing to update."})
             return
-        ok, err = update_job(job_id, fields)
+        ok, err = update_job(job_id, user["id"], fields)
         if ok:
             self._send_json(200, {"ok": True})
+        elif err == "not found":
+            self._send_json(404, {"error": "Job not found."})
         else:
             self._send_json(502, {"error": err})
 
@@ -218,6 +312,8 @@ def run_server(port=None, schedule=True):
         if schedule and settings.scout_schedule_enabled:
             runner.start_schedule()
             print(f"Daily scout run: {settings.scout_daily_time} {settings.scout_timezone} (next: {runner.next_run_at():%Y-%m-%d %H:%M})")
-        if not settings.allowed_emails:
-            print("⚠️  ALLOWED_EMAILS is empty: nobody can load jobs or start a run from the dashboard.")
+        if settings.allowed_emails:
+            print(f"Dashboard logins limited to ALLOWED_EMAILS ({len(settings.allowed_emails)} address(es)).")
+        else:
+            print("Dashboard open to any signed-up account (set ALLOWED_EMAILS to limit it).")
         httpd.serve_forever()

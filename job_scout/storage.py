@@ -69,10 +69,11 @@ def get_supabase_headers(key=None):
         "Prefer": "return=minimal"
     }
 
-def store_job_in_supabase(job, tailored=None, url=None, key=None):
+def store_job_in_supabase(job, tailored=None, url=None, key=None, user_id=None):
     """
     Inserts a job into Supabase 'jobs' table using insert-only POST.
     `tailored` (agent.TailoredResume) adds the drafts the dashboard shows for review.
+    `user_id` (Supabase auth user) owns the row; the dashboard only shows a user their own jobs.
     Treats HTTP 201 as success.
     """
     url = url or settings.supabase_url
@@ -91,6 +92,8 @@ def store_job_in_supabase(job, tailored=None, url=None, key=None):
         "status": "new",
         "processed_at": datetime.now(timezone.utc).isoformat(),
     }
+    if user_id:
+        payload["user_id"] = user_id
     if tailored:
         payload["tailored_resume"] = tailored.ats_text
         payload["cover_letter"] = tailored.cover_letter
@@ -103,27 +106,32 @@ def store_job_in_supabase(job, tailored=None, url=None, key=None):
     except Exception as e:
         return False, str(e)
 
-def check_supabase_duplicates(jobs, url=None, key=None):
+def check_supabase_duplicates(jobs, url=None, key=None, user_id=None):
     """
     Filters out jobs that have already been recorded in Supabase or the local ledger.
     Matches import contract for app.py and daily_job_scout.py.
+    With `user_id` only that user's jobs count as duplicates and the local (single-user) ledger is skipped.
     """
     url = url or settings.supabase_url
     key = key or settings.supabase_key
     seen_urls = set()
 
     # 1. Check local ledger
-    ledger = load_ledger()
-    seen_urls.update(ledger.get("seen_urls", {}).keys())
+    if not user_id:
+        ledger = load_ledger()
+        seen_urls.update(ledger.get("seen_urls", {}).keys())
 
     # 2. Check Supabase 'jobs' table if reachable (only the candidate URLs, like n8n 'Filter Out Duplicates')
     links = [job.get("jobLink") or job.get("url") for job in jobs if job.get("jobLink") or job.get("url")]
     if url and key and links:
         try:
             quoted = ",".join('"{}"'.format(link.replace('"', '\\"')) for link in links)
+            params = {"select": "job_url", "job_url": f"in.({quoted})"}
+            if user_id:
+                params["user_id"] = f"eq.{user_id}"
             response = requests.get(
                 f"{url.rstrip('/')}/jobs",
-                params={"select": "job_url", "job_url": f"in.({quoted})"},
+                params=params,
                 headers=get_supabase_headers(key),
                 timeout=10,
             )
@@ -149,14 +157,15 @@ def check_supabase_duplicates(jobs, url=None, key=None):
 JOB_STATUSES = ("new", "reviewed", "applied", "skipped")
 
 
-def list_jobs(days=30, url=None, key=None):
-    """Returns (rows, error): jobs processed in the last `days` days, newest first."""
+def list_jobs(user_id, days=30, url=None, key=None):
+    """Returns (rows, error): the user's jobs processed in the last `days` days, newest first."""
     url = url or settings.supabase_url
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     try:
         response = requests.get(
             f"{url.rstrip('/')}/jobs",
-            params={"select": "*", "processed_at": f"gte.{since}", "order": "processed_at.desc", "limit": "300"},
+            params={"select": "*", "user_id": f"eq.{user_id}", "processed_at": f"gte.{since}",
+                    "order": "processed_at.desc", "limit": "300"},
             headers=get_supabase_headers(key),
             timeout=10,
         )
@@ -167,8 +176,8 @@ def list_jobs(days=30, url=None, key=None):
         return [], f"Could not reach Supabase: {err}"
 
 
-def update_job(job_id, fields, url=None, key=None):
-    """Updates one job row by id. Returns (success, error)."""
+def update_job(job_id, user_id, fields, url=None, key=None):
+    """Updates one of the user's job rows. Returns (success, error); error is "not found" for other users' jobs."""
     url = url or settings.supabase_url
     fields = dict(fields, updated_at=datetime.now(timezone.utc).isoformat())
     if fields.get("status") == "applied":
@@ -176,13 +185,73 @@ def update_job(job_id, fields, url=None, key=None):
     try:
         response = requests.patch(
             f"{url.rstrip('/')}/jobs",
-            params={"id": f"eq.{int(job_id)}"},
+            params={"id": f"eq.{int(job_id)}", "user_id": f"eq.{user_id}", "select": "id"},
             json=fields,
+            headers=dict(get_supabase_headers(key), Prefer="return=representation"),
+            timeout=10,
+        )
+        if response.status_code == 200:
+            return (True, None) if response.json() else (False, "not found")
+        return False, f"Supabase HTTP {response.status_code}: {response.text[:200]}"
+    except requests.RequestException as err:
+        return False, f"Could not reach Supabase: {err}"
+
+
+# ---------------------------------------------------------
+# 5. Profiles: each dashboard user's master resume, search and run history
+# ---------------------------------------------------------
+PROFILE_FIELDS = ("master_resume", "search_query", "search_location", "keywords", "daily_enabled")
+
+
+def get_profile(user_id, url=None, key=None):
+    """Returns (profile or None, error)."""
+    url = url or settings.supabase_url
+    try:
+        response = requests.get(
+            f"{url.rstrip('/')}/profiles",
+            params={"select": "*", "user_id": f"eq.{user_id}"},
             headers=get_supabase_headers(key),
             timeout=10,
         )
-        if response.status_code in (200, 204):
+        if response.status_code == 200:
+            rows = response.json()
+            return (rows[0] if rows else None), None
+        return None, f"Supabase HTTP {response.status_code}: {response.text[:200]}"
+    except requests.RequestException as err:
+        return None, f"Could not reach Supabase: {err}"
+
+
+def save_profile(user_id, fields, url=None, key=None):
+    """Creates or updates the user's profile with `fields`. Returns (success, error)."""
+    url = url or settings.supabase_url
+    fields = dict(fields, user_id=user_id, updated_at=datetime.now(timezone.utc).isoformat())
+    try:
+        response = requests.post(
+            f"{url.rstrip('/')}/profiles",
+            params={"on_conflict": "user_id"},
+            json=fields,
+            headers=dict(get_supabase_headers(key), Prefer="resolution=merge-duplicates,return=minimal"),
+            timeout=10,
+        )
+        if response.status_code in (200, 201, 204):
             return True, None
         return False, f"Supabase HTTP {response.status_code}: {response.text[:200]}"
     except requests.RequestException as err:
         return False, f"Could not reach Supabase: {err}"
+
+
+def list_scheduled_profiles(url=None, key=None):
+    """Returns (profiles, error): users with the daily run on and a master resume saved."""
+    url = url or settings.supabase_url
+    try:
+        response = requests.get(
+            f"{url.rstrip('/')}/profiles",
+            params={"select": "user_id,master_resume,last_run", "daily_enabled": "is.true", "master_resume": "neq."},
+            headers=get_supabase_headers(key),
+            timeout=15,
+        )
+        if response.status_code == 200:
+            return [row for row in response.json() if (row.get("master_resume") or "").strip()], None
+        return [], f"Supabase HTTP {response.status_code}: {response.text[:200]}"
+    except requests.RequestException as err:
+        return [], f"Could not reach Supabase: {err}"

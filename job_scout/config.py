@@ -45,18 +45,20 @@ class Settings:
     use_docling: bool = os.getenv("USE_DOCLING", "true").lower() not in ("0", "false", "no")
     max_resume_bytes: int = int(os.getenv("MAX_RESUME_BYTES", str(10 * 1024 * 1024)))
 
-    # Web server. Only these dashboard logins can see jobs or start a scout run.
+    # Web server. Any Supabase account can use the dashboard; set ALLOWED_EMAILS to limit it to a list.
     port: int = int(os.getenv("PORT", "8080"))
     allowed_emails: tuple = tuple(e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "").split(",") if e.strip())
 
-    # Daily scout run (built into `main.py serve`)
+    # Daily scout run (built into `main.py serve`): one run per user, queued one after another.
+    # SCOUT_QUERY / SCOUT_LOCATION are the defaults for a new user's search and for `main.py scout`.
     scout_schedule_enabled: bool = os.getenv("SCOUT_SCHEDULE", "true").lower() not in ("0", "false", "no")
     scout_daily_time: str = os.getenv("SCOUT_DAILY_TIME", "06:30")
     scout_timezone: str = os.getenv("SCOUT_TIMEZONE", "Asia/Kolkata")
     scout_query: str = os.getenv("SCOUT_QUERY", "AI Product Manager")
     scout_location: str = os.getenv("SCOUT_LOCATION", "Pune, Maharashtra, India")
     scout_max_jobs: int = int(os.getenv("SCOUT_MAX_JOBS", "5"))
-    scout_state_file: Path = PROJECT_ROOT / "scout_state.json"
+    # Each run spends the server's Apify and Gemini credits, so "Run scout now" is limited per user per day
+    scout_manual_runs_per_day: int = int(os.getenv("SCOUT_MANUAL_RUNS_PER_DAY", "3"))
 
 
 settings = Settings()

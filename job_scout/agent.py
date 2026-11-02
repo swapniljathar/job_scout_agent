@@ -115,20 +115,29 @@ class JobScoutAgent:
         return tailored
 
     # ---------------- Daily run ----------------
-    def run_daily(self, criteria=None):
-        """Headless daily pipeline (formerly daily_job_scout.py). Returns processed jobs; raises ScoutError."""
+    def run_daily(self, criteria=None, resume_text=None, user_id=None):
+        """
+        Headless daily pipeline (formerly daily_job_scout.py). Returns processed jobs; raises ScoutError.
+        For a dashboard user pass their `resume_text` and `user_id`: jobs are deduplicated and stored for that
+        user only, and drafts live in Supabase instead of local files.
+        """
         criteria = criteria or ScoutCriteria()
         log = self.log
         log("=" * 60)
         log(f"🎯 Starting Daily Job Scout Pipeline — {datetime.now():%Y-%m-%d %H:%M:%S}")
         log("=" * 60)
 
-        resume_text = self.load_resume()
-        if resume_text:
+        if user_id:
+            if not (resume_text or "").strip():
+                raise ScoutError("Add your master resume on the My Resume tab first.")
             log(f"✓ Loaded Master Resume ({len(resume_text.split())} words)")
         else:
-            resume_text = FALLBACK_RESUME
-            log(f"⚠️ No {self.resume_path.name} found; using fallback profile.")
+            resume_text = self.load_resume()
+            if resume_text:
+                log(f"✓ Loaded Master Resume ({len(resume_text.split())} words)")
+            else:
+                resume_text = FALLBACK_RESUME
+                log(f"⚠️ No {self.resume_path.name} found; using fallback profile.")
 
         log("🚀 Triggering Apify crawler...")
         fetch_criteria = ScoutCriteria(**{**criteria.__dict__, "max_jobs": criteria.max_jobs * 3})
@@ -141,7 +150,7 @@ class JobScoutAgent:
             raise ScoutError(err)
         log(f"✓ Parsed & cleaned {len(jobs)} job listings.")
 
-        new_jobs = check_supabase_duplicates(jobs)
+        new_jobs = check_supabase_duplicates(jobs, user_id=user_id)
         log(f"✓ After Supabase deduplication: {len(new_jobs)} new listings.")
         if not new_jobs:
             log("ℹ️ No new listings to process today.")
@@ -151,14 +160,19 @@ class JobScoutAgent:
         processed = []
         for i, job in enumerate(ranked, 1):
             log(f"\n[{i}/{len(ranked)}] Processing: {job['title']} @ {job['company']} (score {job['score']})")
-            tailored = self.tailor(job, resume_text)
-            log(f"  ✓ Saved LaTeX: {tailored.tex_file}")
-            log(f"  ✓ Saved ATS Text: {tailored.txt_file}")
-            log(f"  ✓ Saved Cover Letter: {tailored.cover_file}")
+            tailored = self.tailor(job, resume_text, save=not user_id)
+            if not user_id:
+                log(f"  ✓ Saved LaTeX: {tailored.tex_file}")
+                log(f"  ✓ Saved ATS Text: {tailored.txt_file}")
+                log(f"  ✓ Saved Cover Letter: {tailored.cover_file}")
 
-            stored, s_err = store_job_in_supabase(job, tailored)
+            stored, s_err = store_job_in_supabase(job, tailored, user_id=user_id)
             log("  ✓ Stored record in Supabase." if stored else f"  ⚠️ Supabase store note: {s_err}")
             processed.append(job)
+
+        if user_id:
+            log(f"🎉 Pipeline Complete! Processed {len(processed)} target opportunities.")
+            return processed
 
         digest_file = settings.resumes_dir.parent / f"email_digest_{datetime.now():%Y%m%d}.html"
         digest_file.write_text(generate_email_digest_html(processed), encoding="utf-8")

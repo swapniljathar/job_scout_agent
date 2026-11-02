@@ -236,18 +236,24 @@ Job Scout Agent is engineered from the ground up to protect your sensitive perso
 ### Google Cloud VM: daily scout + dashboard
 
 `python main.py serve` serves the dashboard **and** runs the scout every day at `SCOUT_DAILY_TIME`
-(default 06:30 Asia/Kolkata). If the VM was off at that time, the run starts as soon as the server is back that day.
-After signing in, the dashboard shows **This Morning's Scout** (new jobs and jobs waiting for review) and a
-**Run scout now** button. Review each job in the drawer, then **Approve**, **Mark applied** or **Skip**; decisions are saved to Supabase.
+(default 06:30 Asia/Kolkata). If the VM was off at that time, the runs start as soon as the server is back that day.
 
-1. Run `supabase_schema.sql` in the Supabase SQL Editor (adds the review columns and locks the table).
+**Multi-user.** Anyone can sign up with email and password (set `ALLOWED_EMAILS` to limit it to a list). Each user
+gets a private space: they upload their own resume on **My Resume**, set the role, location and keywords on
+**This Morning's Scout**, and only ever see their own jobs and drafts. Every morning the server runs the scout once
+per user, one after another. **Run scout now** is limited to `SCOUT_MANUAL_RUNS_PER_DAY` per user, because every
+run spends the server owner's Apify and Gemini credits. Review each job in the drawer, then **Approve**,
+**Mark applied** or **Skip**; decisions are saved to Supabase.
+
+1. Run `supabase_schema.sql` in the Supabase SQL Editor (adds `profiles`, per-user jobs and locks both tables).
+   In **Authentication → URL Configuration**, set **Site URL** to `http://<VM external IP>:8080` so sign-up
+   confirmation links open the dashboard.
 2. On the VM (Debian/Ubuntu):
    ```bash
    sudo apt update && sudo apt install -y git python3-venv
    git clone https://github.com/swapniljathar/job_scout_agent.git ~/job_scout_agent
    cd ~/job_scout_agent && python3 -m venv venv && venv/bin/pip install -r requirements.txt
-   cp .env.example .env && nano .env      # APIFY_API_TOKEN, SUPABASE_KEY (secret), GEMINI_API_KEY, ALLOWED_EMAILS
-   nano master_resume.md                  # paste your master resume
+   cp .env.example .env && nano .env      # APIFY_API_TOKEN, SUPABASE_KEY (secret), GEMINI_API_KEY
    ```
 3. Install the service (first replace `YOUR_VM_USER` in `deploy/job-scout.service` with your VM username):
    ```bash
