@@ -9,7 +9,7 @@ from datetime import datetime
 
 from job_scout.config import settings
 from job_scout.digest import generate_email_digest_html
-from job_scout.linkedin_scraper import scrape_linkedin_jobs
+from job_scout.linkedin_scraper import scrape_linkedin_jobs, time_filter_days
 from job_scout.resume_builder import build_moderncv_latex, generate_ats_optimized_resume, generate_cover_letter
 from job_scout.resume_parser import ParsedResume, parse_resume
 from job_scout.sample_jobs import get_sample_jobs
@@ -36,6 +36,10 @@ class ScoutCriteria:
     must_haves: list = field(default_factory=lambda: ["Python", "AI", "LLM", "Agile", "Product Strategy"])
     excludes: list = field(default_factory=lambda: ["Manual QA", "Unpaid", "10+ years"])
     max_jobs: int = 5
+    # Several roles / locations for the daily run (override query / location when set)
+    roles: list = field(default_factory=list)
+    locations: list = field(default_factory=list)
+    work_types: list = field(default_factory=list)  # 'onsite', 'hybrid', 'remote'; empty = any
 
 
 @dataclass
@@ -139,11 +143,13 @@ class JobScoutAgent:
                 resume_text = FALLBACK_RESUME
                 log(f"⚠️ No {self.resume_path.name} found; using fallback profile.")
 
-        log("🚀 Triggering Apify crawler...")
-        fetch_criteria = ScoutCriteria(**{**criteria.__dict__, "max_jobs": criteria.max_jobs * 3})
+        roles = criteria.roles or [criteria.query]
+        locations = criteria.locations or [criteria.location]
+        log(f"🚀 Triggering Apify crawler: {', '.join(roles)} in {' / '.join(locations)}...")
         jobs, err = scrape_linkedin_jobs(
-            fetch_criteria.query, fetch_criteria.location, fetch_criteria.time_filter, fetch_criteria.remote_filter,
-            max_items=fetch_criteria.max_jobs, max_days=7, status_callback=log,
+            roles, locations, criteria.time_filter, criteria.remote_filter,
+            max_items=criteria.max_jobs * 3 * len(locations), max_days=time_filter_days(criteria.time_filter),
+            status_callback=log, work_types=criteria.work_types,
         )
         if err:
             log(f"⚠️ Apify notice: {err}")

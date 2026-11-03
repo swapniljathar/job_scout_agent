@@ -11,7 +11,8 @@ Every user sees and changes only their own profile and jobs:
   POST /api/resume/parse?filename=resume.pdf   (raw file bytes as body)
   POST /api/resume/parse         {"url": "<document link>"}  (application/json)
   GET  /api/profile              → master resume, search settings, daily run on/off, manual runs left today
-  POST /api/profile              {"master_resume"?, "search_query"?, "search_location"?, "keywords"?, "daily_enabled"?}
+  POST /api/profile              {"master_resume"?, "search_roles"?: [...], "search_locations"?: [...], "work_types"?: [...],
+                                  "posted_within"?: "24h|3d|7d|30d", "keywords"?, "daily_enabled"?}
   GET  /api/jobs                 → {"jobs": [...]} processed in the last 30 days
   POST /api/jobs/<id>            {"status": "reviewed|applied|skipped|new", "tailored_resume"?, "cover_letter"?}
   GET  /api/scout/status         → the user's running/queued run, last run, next scheduled run, recent log lines
@@ -29,7 +30,7 @@ import requests
 
 from job_scout.config import PROJECT_ROOT, settings
 from job_scout.resume_parser import ResumeParseError, docling_available, parse_resume_bytes, parse_resume_link
-from job_scout.scheduler import runner, today
+from job_scout.scheduler import POSTED_WITHIN, WORK_TYPES, runner, search_settings, today
 from job_scout.storage import JOB_STATUSES, PROFILE_FIELDS, get_profile, list_jobs, save_profile, update_job
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 _token_cache = {}  # access token -> (user, expires_at)
 _token_lock = threading.Lock()
 MAX_RESUME_CHARS = 100_000
-PROFILE_TEXT_LIMITS = {"search_query": 120, "search_location": 120, "keywords": 500}
+LIST_LIMITS = {"search_roles": 5, "search_locations": 3, "work_types": 3}  # max items per list
 
 
 def verify_login(auth_header):
@@ -73,6 +74,36 @@ def verify_login(auth_header):
     return user, None
 
 
+def validate_profile_fields(body):
+    """Returns (fields to save, error) for a POST /api/profile body."""
+    fields = {k: body[k] for k in PROFILE_FIELDS if k in body}
+    for key, value in fields.items():
+        if key == "daily_enabled":
+            if not isinstance(value, bool):
+                return None, "daily_enabled must be true or false."
+        elif key in LIST_LIMITS:
+            if not isinstance(value, list) or not all(isinstance(v, str) and 0 < len(v.strip()) <= 80 for v in value):
+                return None, f"{key} must be a list of short text values."
+            value = list(dict.fromkeys(v.strip() for v in value))
+            if len(value) > LIST_LIMITS[key]:
+                return None, f"Choose at most {LIST_LIMITS[key]} {key.replace('search_', '').replace('_', ' ')}."
+            if key == "work_types" and any(v not in WORK_TYPES for v in value):
+                return None, f"work_types must be from {', '.join(WORK_TYPES)}."
+            if key != "work_types" and not value:
+                return None, f"Add at least one {key.replace('search_', '')[:-1]}."
+            fields[key] = value
+        elif key == "posted_within":
+            if value not in POSTED_WITHIN:
+                return None, f"posted_within must be one of {', '.join(POSTED_WITHIN)}."
+        elif not isinstance(value, str):
+            return None, f"{key} must be text."
+        elif len(value) > (500 if key == "keywords" else MAX_RESUME_CHARS):
+            return None, f"{key} is too long."
+    if not fields:
+        return None, "Nothing to update."
+    return fields, None
+
+
 def profile_payload(user, profile):
     """The profile as the dashboard sees it, with defaults for a user who hasn't saved one yet."""
     profile = profile or {}
@@ -80,9 +111,7 @@ def profile_payload(user, profile):
     return {
         "email": user["email"],
         "master_resume": profile.get("master_resume") or "",
-        "search_query": profile.get("search_query") or settings.scout_query,
-        "search_location": profile.get("search_location") or settings.scout_location,
-        "keywords": profile.get("keywords") or "",
+        **search_settings(profile),
         "daily_enabled": profile.get("daily_enabled", True) is not False,
         "manual_runs_left": max(settings.scout_manual_runs_per_day - used, 0),
         "manual_runs_per_day": settings.scout_manual_runs_per_day,
@@ -270,20 +299,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except ValueError as err:
             self._send_json(400, {"error": str(err) or "Invalid JSON."})
             return
-        fields = {k: body[k] for k in PROFILE_FIELDS if k in body}
-        for key, value in fields.items():
-            if key == "daily_enabled":
-                if not isinstance(value, bool):
-                    self._send_json(400, {"error": "daily_enabled must be true or false."})
-                    return
-            elif not isinstance(value, str):
-                self._send_json(400, {"error": f"{key} must be text."})
-                return
-            elif len(value) > PROFILE_TEXT_LIMITS.get(key, MAX_RESUME_CHARS):
-                self._send_json(400, {"error": f"{key} is too long."})
-                return
-        if not fields:
-            self._send_json(400, {"error": "Nothing to update."})
+        fields, err = validate_profile_fields(body if isinstance(body, dict) else {})
+        if err:
+            self._send_json(400, {"error": err})
             return
         ok, err = save_profile(user["id"], dict(fields, email=user["email"]))
         if ok:

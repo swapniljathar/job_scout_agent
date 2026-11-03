@@ -89,6 +89,7 @@ def store_job_in_supabase(job, tailored=None, url=None, key=None, user_id=None):
         "reason": job.get("why", ""),
         "matched_keywords": job.get("matched", []),
         "job_description": job.get("jobDescription", ""),
+        "apply_url": job.get("applyUrl", ""),
         "status": "new",
         "processed_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -200,7 +201,7 @@ def update_job(job_id, user_id, fields, url=None, key=None):
 # ---------------------------------------------------------
 # 5. Profiles: each dashboard user's master resume, search and run history
 # ---------------------------------------------------------
-PROFILE_FIELDS = ("master_resume", "search_query", "search_location", "keywords", "daily_enabled")
+PROFILE_FIELDS = ("master_resume", "search_roles", "search_locations", "work_types", "posted_within", "keywords", "daily_enabled")
 
 
 def get_profile(user_id, url=None, key=None):

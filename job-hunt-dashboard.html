@@ -357,42 +357,28 @@
             <input 
               type="text" 
               id="dashboard-search-input"
-              value="AI Product Manager and Product Manager roles in Pune" 
-              placeholder="Standing search query: e.g. AI Product Manager in Pune..." 
+              value="" 
+              placeholder="Search the jobs below by company or title…" 
               class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-transparent smooth-transition text-gray-900 bg-white placeholder-gray-400"
               oninput="handleGlobalSearch()"
             >
           </div>
           <button onclick="triggerScoutCycle()" class="px-4 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 font-medium text-xs smooth-transition shrink-0 shadow-2xs flex items-center gap-2">
             <svg class="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-            <span>Scan LinkedIn (&lt;72h)</span>
+            <span>Scan LinkedIn now</span>
           </button>
         </div>
 
-        <!-- Filter Pills Bar -->
+        <!-- Filter Pills Bar: narrows the jobs shown below (rendered by renderFilterPills) -->
         <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100 text-xs">
-          <div class="flex flex-wrap items-center gap-2">
-            <button class="px-3 py-1 rounded-full bg-gray-100 text-gray-900 border border-gray-200 font-medium smooth-transition flex items-center gap-1.5 shadow-2xs">
-              <span>Location: Pune & Remote</span>
-              <span class="text-gray-400 hover:text-gray-700 text-[10px]">✕</span>
-            </button>
-            <button class="px-3 py-1 rounded-full bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 smooth-transition flex items-center gap-1.5">
-              <span>Freshness: &lt; 3 Days</span>
-            </button>
-            <button class="px-3 py-1 rounded-full bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 smooth-transition flex items-center gap-1.5">
-              <span>Title: APM / PM / AI PM</span>
-            </button>
-            <button class="px-3 py-1 rounded-full bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 smooth-transition flex items-center gap-1.5">
-              <span>ATS: Greenhouse / Workday / Lever</span>
-            </button>
-            <button class="px-3 py-1 rounded-full bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 smooth-transition flex items-center gap-1.5">
-              <span>Source: LinkedIn Scraped</span>
+          <div id="filter-pills" class="flex flex-wrap items-center gap-2"></div>
+
+          <div class="flex items-center gap-3">
+            <span id="filter-result-count" class="text-[11px] text-gray-500 font-mono"></span>
+            <button onclick="clearFilters()" class="text-xs text-gray-400 hover:text-gray-700 underline font-mono">
+              Clear all
             </button>
           </div>
-
-          <button onclick="clearFilters()" class="text-xs text-gray-400 hover:text-gray-700 underline font-mono">
-            Clear all
-          </button>
         </div>
       </div>
 
@@ -411,24 +397,59 @@
             <span id="scout-run-label">Run scout now</span>
           </button>
         </div>
-        <div id="scout-settings" class="hidden flex flex-col lg:flex-row lg:items-end gap-2 pb-3 border-b border-gray-100">
-          <label class="flex-1 min-w-0">
-            <span class="block text-[10.5px] text-gray-500 mb-1">Role to search</span>
-            <input id="scout-query-input" type="text" maxlength="120" placeholder="e.g. Product Manager" class="w-full px-3 py-1.5 rounded-full border border-gray-300 bg-white text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400">
-          </label>
-          <label class="flex-1 min-w-0">
-            <span class="block text-[10.5px] text-gray-500 mb-1">Location</span>
-            <input id="scout-location-input" type="text" maxlength="120" placeholder="e.g. Pune, Maharashtra, India" class="w-full px-3 py-1.5 rounded-full border border-gray-300 bg-white text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400">
-          </label>
-          <label class="flex-1 min-w-0">
-            <span class="block text-[10.5px] text-gray-500 mb-1">Must-have keywords (comma-separated, optional)</span>
-            <input id="scout-keywords-input" type="text" maxlength="500" placeholder="e.g. Python, SQL, Agile" class="w-full px-3 py-1.5 rounded-full border border-gray-300 bg-white text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-gray-400">
-          </label>
-          <label class="flex items-center gap-1.5 text-[11px] text-gray-600 shrink-0 py-1.5">
-            <input id="scout-daily-input" type="checkbox" class="rounded border-gray-300">
-            <span id="scout-daily-label">Daily morning run</span>
-          </label>
-          <button onclick="saveScoutSettings()" class="px-4 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 text-xs font-medium smooth-transition shrink-0">Save search</button>
+        <div id="scout-settings" class="hidden pb-3 border-b border-gray-100 space-y-3">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <div>
+            <span class="block text-[10.5px] text-gray-500 mb-1">Roles to search (up to 5)</span>
+            <div onclick="document.getElementById('chip-input-roles').focus()" class="flex flex-wrap items-center gap-1.5 px-2 py-1.5 rounded-xl border border-gray-300 bg-white min-h-[34px] cursor-text focus-within:border-gray-400">
+              <div id="chips-roles" class="contents"></div>
+              <input id="chip-input-roles" type="text" maxlength="80" placeholder="Type a role, press Enter" onkeydown="chipKeydown(event, 'roles')" aria-label="Roles to search (up to 5)" class="flex-1 min-w-[150px] text-xs text-gray-800 placeholder-gray-400 focus:outline-none bg-transparent">
+            </div>
+            <div id="suggest-roles" class="flex flex-wrap gap-1 mt-1.5"></div>
+          </div>
+          <div>
+            <span class="block text-[10.5px] text-gray-500 mb-1">Locations (up to 3)</span>
+            <div onclick="document.getElementById('chip-input-locations').focus()" class="flex flex-wrap items-center gap-1.5 px-2 py-1.5 rounded-xl border border-gray-300 bg-white min-h-[34px] cursor-text focus-within:border-gray-400">
+              <div id="chips-locations" class="contents"></div>
+              <input id="chip-input-locations" type="text" maxlength="80" placeholder="Type a city, press Enter" onkeydown="chipKeydown(event, 'locations')" aria-label="Locations (up to 3)" class="flex-1 min-w-[150px] text-xs text-gray-800 placeholder-gray-400 focus:outline-none bg-transparent">
+            </div>
+            <div id="suggest-locations" class="flex flex-wrap gap-1 mt-1.5"></div>
+          </div>
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-[auto_auto_1fr] gap-3 items-start">
+            <div>
+              <span class="block text-[10.5px] text-gray-500 mb-1">Work type (none selected = any)</span>
+              <div class="flex items-center gap-1.5">
+                <button type="button" id="worktype-onsite" onclick="toggleWorkType('onsite')" aria-pressed="false" class="px-3 py-1.5 rounded-full border text-xs smooth-transition">On-site</button>
+                <button type="button" id="worktype-hybrid" onclick="toggleWorkType('hybrid')" aria-pressed="false" class="px-3 py-1.5 rounded-full border text-xs smooth-transition">Hybrid</button>
+                <button type="button" id="worktype-remote" onclick="toggleWorkType('remote')" aria-pressed="false" class="px-3 py-1.5 rounded-full border text-xs smooth-transition">Remote</button>
+              </div>
+            </div>
+            <label class="block">
+              <span class="block text-[10.5px] text-gray-500 mb-1">Posted within</span>
+              <select id="scout-posted-input" class="px-3 py-1.5 rounded-full border border-gray-300 bg-white text-xs text-gray-800 focus:outline-none focus:border-gray-400">
+                <option value="24h">24 hours</option>
+                <option value="3d">3 days</option>
+                <option value="7d">1 week</option>
+                <option value="30d">1 month</option>
+              </select>
+            </label>
+          <div>
+            <span class="block text-[10.5px] text-gray-500 mb-1">Must-have keywords (optional, raise a job's score)</span>
+            <div onclick="document.getElementById('chip-input-keywords').focus()" class="flex flex-wrap items-center gap-1.5 px-2 py-1.5 rounded-xl border border-gray-300 bg-white min-h-[34px] cursor-text focus-within:border-gray-400">
+              <div id="chips-keywords" class="contents"></div>
+              <input id="chip-input-keywords" type="text" maxlength="80" placeholder="e.g. SQL, press Enter" onkeydown="chipKeydown(event, 'keywords')" aria-label="Must-have keywords (optional, raise a job's score)" class="flex-1 min-w-[150px] text-xs text-gray-800 placeholder-gray-400 focus:outline-none bg-transparent">
+            </div>
+            
+          </div>
+          </div>
+          <div class="flex flex-wrap items-center justify-end gap-3">
+            <label class="flex items-center gap-1.5 text-[11px] text-gray-600">
+              <input id="scout-daily-input" type="checkbox" class="rounded border-gray-300">
+              <span id="scout-daily-label">Daily morning run</span>
+            </label>
+            <button onclick="saveScoutSettings()" class="px-4 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 text-xs font-medium smooth-transition">Save search</button>
+          </div>
         </div>
         <div id="morning-summary-list" class="divide-y divide-gray-100"></div>
         <p id="scout-run-log" class="hidden text-[11px] font-mono text-gray-500 truncate"></p>
@@ -804,6 +825,8 @@
   <!-- ======================================================== -->
   <!-- ROLE INSPECTION & HUMAN-IN-THE-LOOP TAILORING DRAWER -->
   <!-- ======================================================== -->
+  <div id="filter-menu" role="dialog" class="hidden fixed z-40 w-60 max-h-80 overflow-y-auto custom-scroll bg-white rounded-xl border border-[#EAEAEA] shadow-lg p-1.5 text-xs"></div>
+
   <div id="role-drawer" class="fixed inset-0 z-50 hidden flex items-center justify-end">
     <!-- Backdrop -->
     <div onclick="closeDrawer()" class="absolute inset-0 drawer-overlay"></div>
@@ -1985,7 +2008,12 @@
       const container = document.getElementById('pastel-matches-grid');
       const C = 103.67;
 
-      container.innerHTML = topMatchJobs().map((job, idx) => {
+      const jobs = topMatchJobs();
+      if (!jobs.length) {
+        container.innerHTML = `<p class="col-span-full py-6 text-center text-xs text-gray-500">${stagedJobs.length ? 'No jobs match these filters. <button onclick="clearFilters()" class="text-blue-600 underline">Clear filters</button>' : 'No jobs yet.'}</p>`;
+        return;
+      }
+      container.innerHTML = jobs.map((job, idx) => {
         const offset = C - (job.score / 100) * C;
         return `
           <div class="rounded-2xl border border-[#EAEAEA] bg-white p-2 shadow-2xs hover:shadow-xs hover:border-gray-300 smooth-transition flex flex-col justify-between group">
@@ -2039,8 +2067,10 @@
     }
 
     // Render Applications Table
-    function renderApplicationsTable(jobsToRender = stagedJobs) {
+    function renderApplicationsTable(jobsToRender = tableJobs()) {
       const tbody = document.getElementById('applications-table-body');
+      const allBtn = document.querySelector('[data-status="all"]');
+      if (allBtn) allBtn.innerText = `All (${filteredJobs().length})`;
       tbody.innerHTML = jobsToRender.map(job => {
         let statusBadge = '';
         if (job.status === 'Needs you') {
@@ -2057,7 +2087,7 @@
           <tr class="hover:bg-gray-50/70 smooth-transition cursor-pointer" onclick="openDrawer('${job.id}')">
             <td class="py-3 px-3 font-medium text-gray-900">${esc(job.company)}</td>
             <td class="py-3 px-3 text-gray-700 font-medium">${esc(job.title)}</td>
-            <td class="py-3 px-3 font-mono text-gray-500 text-[11px]">Greenhouse</td>
+            <td class="py-3 px-3 font-mono text-gray-500 text-[11px]">${esc(jobAts(job))}</td>
             <td class="py-3 px-3 font-mono text-[11px] text-gray-800 font-semibold">${job.score}%</td>
             <td class="py-3 px-3">${statusBadge}</td>
             <td class="py-3 px-3 text-gray-400 font-mono text-[11px]">${esc(job.postedAt)}</td>
@@ -2083,15 +2113,27 @@
         active.classList.remove('bg-white', 'text-gray-700', 'border-gray-200');
       }
 
-      if (status === 'all') renderApplicationsTable(stagedJobs);
-      else if (status === 'submitted') renderApplicationsTable(stagedJobs.filter(j => j.status === 'Submitted'));
-      else if (status === 'in_flight') renderApplicationsTable(stagedJobs.filter(j => j.status === 'Ready' || j.status === 'Approved / Ready' || j.status === 'Outreach Drafted'));
-      else if (status === 'needs_you') renderApplicationsTable(stagedJobs.filter(j => j.status === 'Needs you'));
+      appStatusFilter = status;
+      renderApplicationsTable();
+    }
+
+    // Table rows: the dashboard filters, then the table's own status tab and search box
+    let appStatusFilter = 'all';
+    const APP_STATUS_MATCH = {
+      all: () => true,
+      submitted: j => j.status === 'Submitted',
+      in_flight: j => j.status === 'Ready' || j.status === 'Approved / Ready' || j.status === 'Outreach Drafted',
+      needs_you: j => j.status === 'Needs you',
+    };
+
+    function tableJobs() {
+      const q = ((document.getElementById('table-search') || {}).value || '').toLowerCase();
+      return filteredJobs().filter(j => APP_STATUS_MATCH[appStatusFilter](j)
+        && (j.company.toLowerCase().includes(q) || j.title.toLowerCase().includes(q)));
     }
 
     function filterTableSearch() {
-      const q = document.getElementById('table-search').value.toLowerCase();
-      renderApplicationsTable(stagedJobs.filter(j => j.company.toLowerCase().includes(q) || j.title.toLowerCase().includes(q)));
+      renderApplicationsTable();
     }
 
     // Render Browse 55+ Table
@@ -2471,14 +2513,235 @@
     }
 
     function handleGlobalSearch() {
-      const q = document.getElementById('dashboard-search-input').value.toLowerCase();
-      renderApplicationsTable(stagedJobs.filter(j => j.company.toLowerCase().includes(q) || j.title.toLowerCase().includes(q)));
+      applyViewFilters();
     }
 
     function clearFilters() {
       document.getElementById('dashboard-search-input').value = '';
-      renderApplicationsTable(stagedJobs);
+      Object.keys(viewFilters).forEach(key => { viewFilters[key] = key === 'freshness' ? 0 : []; });
+      closeFilterMenu();
+      applyViewFilters();
       showToast("Filters reset");
+    }
+
+    // ==========================================
+    // DASHBOARD FILTERS: Location / Freshness / Title / ATS / Source narrow the jobs shown
+    // ==========================================
+    const viewFilters = { location: [], freshness: 0, title: [], ats: [], source: [] };
+    const FILTER_LABELS = { location: 'Location', freshness: 'Freshness', title: 'Title', ats: 'ATS', source: 'Source' };
+    const FRESHNESS_OPTIONS = [[0, 'Any time'], [1, '< 24 hours'], [3, '< 3 days'], [7, '< 7 days'], [30, '< 30 days']];
+    const DEFAULT_TITLE_ROLES = ['Associate Product Manager', 'Product Manager', 'AI Product Manager'];
+    const ATS_HOSTS = [
+      [/greenhouse\.io$/, 'Greenhouse'], [/myworkdayjobs\.com$|workday\.com$/, 'Workday'], [/lever\.co$/, 'Lever'],
+      [/ashbyhq\.com$/, 'Ashby'], [/smartrecruiters\.com$/, 'SmartRecruiters'], [/icims\.com$/, 'iCIMS'],
+      [/taleo\.net$|oraclecloud\.com$/, 'Oracle Taleo'], [/successfactors\.(com|eu)$|sapsf\.com$/, 'SuccessFactors'],
+      [/naukri\.com$/, 'Naukri'], [/linkedin\.com$/, 'LinkedIn Easy Apply'],
+    ];
+    let openFilterKey = null;
+    let currentFilterOptions = [];
+
+    function jobPlace(job) {
+      const loc = job.location || '';
+      return /remote/i.test(loc) ? 'Remote' : (loc.split(',')[0].trim() || 'Unknown');
+    }
+
+    function jobAgeDays(job) {
+      const date = job.postedDate ? new Date(job.postedDate) : null;
+      if (date && !isNaN(date)) return Math.max(0, Math.floor((Date.now() - date) / 86400000));
+      const text = String(job.postedAt || '').toLowerCase();
+      if (/just now|today|hour|minute/.test(text)) return 0;
+      if (text === 'yesterday') return 1;
+      const days = text.match(/(\d+)\s*day/);
+      if (days) return Number(days[1]);
+      const weeks = text.match(/(\d+)\s*week/);
+      return weeks ? Number(weeks[1]) * 7 : null;
+    }
+
+    // ATS from the job's application link; null = found before apply links were saved
+    function atsFromUrl(url) {
+      if (url === null || url === undefined) return 'Unknown';
+      if (!url) return 'LinkedIn Easy Apply';
+      let host;
+      try {
+        host = new URL(url).hostname.toLowerCase();
+      } catch (err) {
+        return 'Other';
+      }
+      const hit = ATS_HOSTS.find(([re]) => re.test(host));
+      return hit ? hit[1] : 'Company site';
+    }
+
+    function jobAts(job) {
+      return job.ats || atsFromUrl(job.applyUrl);
+    }
+
+    function jobSource(job) {
+      return job.source || 'LinkedIn';
+    }
+
+    function titleRoles() {
+      return liveMode && profile && profile.search_roles && profile.search_roles.length ? profile.search_roles : DEFAULT_TITLE_ROLES;
+    }
+
+    // "AI Product Manager" matches "Product Manager, AI" and "Senior AI Product Manager"
+    function titleMatches(title, role) {
+      const t = String(title).toLowerCase();
+      const r = role.toLowerCase().trim();
+      if (t.includes(r)) return true;
+      const words = r.split(/\s+/).filter(Boolean);
+      return words.length > 0 && words.every(w => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t));
+    }
+
+    function jobMatchesFilters(job, skipKey) {
+      const q = (document.getElementById('dashboard-search-input').value || '').trim().toLowerCase();
+      if (q && !job.company.toLowerCase().includes(q) && !job.title.toLowerCase().includes(q)) return false;
+      if (skipKey !== 'location' && viewFilters.location.length && !viewFilters.location.includes(jobPlace(job))) return false;
+      if (skipKey !== 'freshness' && viewFilters.freshness) {
+        const age = jobAgeDays(job);
+        if (age === null || age >= viewFilters.freshness) return false;
+      }
+      if (skipKey !== 'title' && viewFilters.title.length && !viewFilters.title.some(role => titleMatches(job.title, role))) return false;
+      if (skipKey !== 'ats' && viewFilters.ats.length && !viewFilters.ats.includes(jobAts(job))) return false;
+      if (skipKey !== 'source' && viewFilters.source.length && !viewFilters.source.includes(jobSource(job))) return false;
+      return true;
+    }
+
+    function filteredJobs() {
+      return stagedJobs.filter(job => jobMatchesFilters(job));
+    }
+
+    // Options with counts, given the other active filters
+    function filterOptions(key) {
+      const pool = stagedJobs.filter(job => jobMatchesFilters(job, key));
+      if (key === 'freshness') {
+        return FRESHNESS_OPTIONS.map(([value, label]) => ({
+          value, label, count: value ? pool.filter(j => { const age = jobAgeDays(j); return age !== null && age < value; }).length : pool.length,
+        }));
+      }
+      if (key === 'title') {
+        const roles = [...new Set([...titleRoles(), ...viewFilters.title])];
+        return roles.map(role => ({ value: role, label: role, count: pool.filter(j => titleMatches(j.title, role)).length }));
+      }
+      const getter = { location: jobPlace, ats: jobAts, source: jobSource }[key];
+      const counts = {};
+      pool.forEach(job => { const v = getter(job); counts[v] = (counts[v] || 0) + 1; });
+      viewFilters[key].forEach(v => { if (!(v in counts)) counts[v] = 0; });
+      return Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([value, count]) => ({ value, label: value, count }));
+    }
+
+    function isFilterActive(key) {
+      return key === 'freshness' ? !!viewFilters.freshness : viewFilters[key].length > 0;
+    }
+
+    function pillText(key) {
+      if (key === 'freshness') return FRESHNESS_OPTIONS.find(o => o[0] === viewFilters.freshness)[1];
+      const selected = viewFilters[key];
+      if (!selected.length) return 'Any';
+      return selected.length <= 2 ? selected.join(' & ') : `${selected[0]} +${selected.length - 1}`;
+    }
+
+    function renderFilterPills() {
+      document.getElementById('filter-pills').innerHTML = Object.keys(FILTER_LABELS).map(key => {
+        const active = isFilterActive(key);
+        return `
+          <button type="button" onclick="openFilterMenu('${key}', this)" aria-haspopup="dialog" class="px-3 py-1 rounded-full border smooth-transition flex items-center gap-1.5 ${active ? 'bg-gray-100 text-gray-900 border-gray-300 font-medium shadow-2xs' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}">
+            <span>${FILTER_LABELS[key]}: ${esc(pillText(key))}</span>
+            ${active
+              ? `<span onclick="event.stopPropagation(); clearFilter('${key}')" role="button" aria-label="Clear ${FILTER_LABELS[key]} filter" class="text-gray-400 hover:text-gray-700 text-[10px]">✕</span>`
+              : '<svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>'}
+          </button>`;
+      }).join('');
+      const shown = filteredJobs().length;
+      document.getElementById('filter-result-count').innerText = shown === stagedJobs.length ? `${shown} jobs` : `Showing ${shown} of ${stagedJobs.length} jobs`;
+    }
+
+    const FILTER_HINTS = {
+      title: () => liveMode ? 'From your search roles. Change them in This Morning\'s Scout.' : '',
+      ats: () => 'Found from each job\'s application link. Jobs found before this update show Unknown.',
+      source: () => 'Jobs come from LinkedIn.',
+    };
+
+    function renderFilterMenu() {
+      const key = openFilterKey;
+      const multi = key !== 'freshness';
+      currentFilterOptions = filterOptions(key);
+      const rows = currentFilterOptions.map((option, idx) => {
+        const checked = multi ? viewFilters[key].includes(option.value) : viewFilters.freshness === option.value;
+        return `
+          <label class="flex items-center justify-between gap-3 px-2.5 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer">
+            <span class="flex items-center gap-2 min-w-0">
+              <input type="${multi ? 'checkbox' : 'radio'}" name="filter-${key}" ${checked ? 'checked' : ''} onchange="setFilterOption(${idx})" class="rounded border-gray-300">
+              <span class="truncate text-gray-800">${esc(option.label)}</span>
+            </span>
+            <span class="font-mono text-[10.5px] text-gray-400">${option.count}</span>
+          </label>`;
+      }).join('');
+      const hint = FILTER_HINTS[key] ? FILTER_HINTS[key]() : '';
+      document.getElementById('filter-menu').innerHTML = `
+        <div class="px-2.5 pt-1 pb-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wider">${FILTER_LABELS[key]}</div>
+        ${rows || '<p class="px-2.5 py-2 text-gray-500">No jobs to filter yet.</p>'}
+        ${hint ? `<p class="px-2.5 pt-1.5 pb-1 text-[10.5px] text-gray-400 leading-snug border-t border-gray-100 mt-1">${esc(hint)}</p>` : ''}`;
+    }
+
+    function openFilterMenu(key, anchor) {
+      const menu = document.getElementById('filter-menu');
+      if (openFilterKey === key && !menu.classList.contains('hidden')) {
+        closeFilterMenu();
+        return;
+      }
+      openFilterKey = key;
+      renderFilterMenu();
+      const rect = anchor.getBoundingClientRect();
+      menu.style.top = `${rect.bottom + 6}px`;
+      menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 248))}px`;
+      menu.classList.remove('hidden');
+    }
+
+    function closeFilterMenu() {
+      openFilterKey = null;
+      document.getElementById('filter-menu').classList.add('hidden');
+    }
+
+    function setFilterOption(idx) {
+      const key = openFilterKey;
+      const option = currentFilterOptions[idx];
+      if (!key || !option) return;
+      if (key === 'freshness') {
+        viewFilters.freshness = option.value;
+      } else {
+        const list = viewFilters[key];
+        const at = list.indexOf(option.value);
+        if (at >= 0) list.splice(at, 1);
+        else list.push(option.value);
+      }
+      applyViewFilters();
+      renderFilterMenu();
+    }
+
+    function clearFilter(key) {
+      viewFilters[key] = key === 'freshness' ? 0 : [];
+      closeFilterMenu();
+      applyViewFilters();
+    }
+
+    function applyViewFilters() {
+      renderFilterPills();
+      renderPastelMatches();
+      renderApplicationsTable();
+    }
+
+    function initFilters() {
+      // Sample jobs get example ATS values; real jobs use their application link
+      ['Greenhouse', 'Workday', 'Lever'].forEach((ats, i) => stagedJobs.filter((_, idx) => idx % 3 === i).forEach(j => { j.ats = j.ats || ats; }));
+      renderFilterPills();
+      document.addEventListener('click', event => {
+        const menu = document.getElementById('filter-menu');
+        if (openFilterKey && !menu.contains(event.target) && !event.target.closest('#filter-pills')) closeFilterMenu();
+      });
+      document.addEventListener('keydown', event => { if (event.key === 'Escape' && openFilterKey) closeFilterMenu(); });
+      window.addEventListener('scroll', () => { if (openFilterKey) closeFilterMenu(); }, { passive: true });
+      window.addEventListener('resize', () => { if (openFilterKey) closeFilterMenu(); });
     }
 
     // ==========================================
@@ -2542,6 +2805,9 @@
         company: row.company || 'Unknown company',
         location: row.location || '',
         postedAt: relativeDay(row.posted_at),
+        postedDate: row.posted_at || null,
+        applyUrl: row.apply_url === undefined ? null : row.apply_url,
+        ats: null,
         score: Number(row.score) || 0,
         status: LIVE_STATUS[dbStatus].label,
         kanban_stage: LIVE_STATUS[dbStatus].stage,
@@ -2564,11 +2830,12 @@
 
     // Top Match cards: in live mode, the 5 best jobs still waiting for review
     function topMatchJobs() {
-      if (!liveMode) return stagedJobs;
-      return stagedJobs.filter(j => j.dbStatus === 'new').sort((a, b) => b.score - a.score).slice(0, 5);
+      if (!liveMode) return filteredJobs();
+      return filteredJobs().filter(j => j.dbStatus === 'new').sort((a, b) => b.score - a.score).slice(0, 5);
     }
 
     function refreshJobViews() {
+      renderFilterPills();
       renderPastelMatches();
       renderApplicationsTable();
       renderDetailedQueue();
@@ -2609,11 +2876,92 @@
       const textarea = document.getElementById('master-resume-textarea');
       textarea.placeholder = 'Upload your resume above, or paste it here and click Save Master Resume.';
       document.getElementById('reset-resume-btn').classList.add('hidden');
-      document.getElementById('scout-query-input').value = profile.search_query;
-      document.getElementById('scout-location-input').value = profile.search_location;
-      document.getElementById('scout-keywords-input').value = profile.keywords;
+      searchDraft.roles = [...profile.search_roles];
+      searchDraft.locations = [...profile.search_locations];
+      searchDraft.keywords = profile.keywords.split(',').map(k => k.trim()).filter(Boolean);
+      searchDraft.work_types = [...profile.work_types];
+      ['roles', 'locations', 'keywords'].forEach(renderSearchChips);
+      renderWorkTypes();
+      document.getElementById('scout-posted-input').value = profile.posted_within;
       document.getElementById('scout-daily-input').checked = profile.daily_enabled;
       document.getElementById('scout-settings').classList.remove('hidden');
+    }
+
+    // Search settings: roles, locations and keywords are edited as chips
+    const SEARCH_PRESETS = {
+      roles: ['Product Manager', 'Associate Product Manager', 'AI Product Manager', 'Senior Product Manager', 'Technical Product Manager',
+        'Product Owner', 'Program Manager', 'Business Analyst', 'Product Analyst', 'Data Analyst', 'Software Engineer'],
+      locations: ['Pune, Maharashtra, India', 'Bengaluru, Karnataka, India', 'Mumbai, Maharashtra, India', 'Hyderabad, Telangana, India',
+        'Gurugram, Haryana, India', 'Chennai, Tamil Nadu, India', 'India'],
+    };
+    const SEARCH_LIMITS = { roles: 5, locations: 3, keywords: 10 };
+    const searchDraft = { roles: [], locations: [], keywords: [], work_types: [] };
+
+    function renderSearchChips(kind) {
+      document.getElementById(`chips-${kind}`).innerHTML = searchDraft[kind].map((value, idx) => `
+        <span class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-[11px] text-gray-800">
+          ${esc(value)}
+          <button type="button" onclick="event.stopPropagation(); removeSearchChip('${kind}', ${idx})" aria-label="Remove ${esc(value)}" class="w-4 h-4 rounded-full text-[10px] text-gray-400 hover:text-gray-800 hover:bg-gray-200 leading-none">✕</button>
+        </span>`).join('');
+      const suggest = SEARCH_PRESETS[kind] && document.getElementById(`suggest-${kind}`);
+      if (!suggest) return;
+      const full = searchDraft[kind].length >= SEARCH_LIMITS[kind];
+      suggest.innerHTML = full ? '' : SEARCH_PRESETS[kind]
+        .filter(preset => !searchDraft[kind].some(v => v.toLowerCase() === preset.toLowerCase()))
+        .map(preset => `<button type="button" data-value="${esc(preset)}" onclick="addSearchChip('${kind}', this.dataset.value)" class="px-2 py-0.5 rounded-full border border-dashed border-gray-300 text-[10.5px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 smooth-transition">+ ${esc(preset.split(',')[0])}</button>`)
+        .join('');
+    }
+
+    function addSearchChip(kind, raw) {
+      // Location names contain commas ("Pune, Maharashtra, India"); roles and keywords can be pasted comma-separated
+      const parts = kind === 'locations' ? [raw] : String(raw).split(',');
+      for (const part of parts) {
+        const value = String(part).trim().replace(/\s+/g, ' ').slice(0, 80);
+        if (!value || searchDraft[kind].some(v => v.toLowerCase() === value.toLowerCase())) continue;
+        if (searchDraft[kind].length >= SEARCH_LIMITS[kind]) {
+          showToast(`You can add up to ${SEARCH_LIMITS[kind]} ${kind}.`);
+          break;
+        }
+        searchDraft[kind].push(value);
+      }
+      renderSearchChips(kind);
+    }
+
+    function removeSearchChip(kind, idx) {
+      searchDraft[kind].splice(idx, 1);
+      renderSearchChips(kind);
+    }
+
+    function chipKeydown(event, kind) {
+      const input = event.target;
+      if (event.key === 'Enter' || (event.key === ',' && kind !== 'locations')) {
+        event.preventDefault();
+        addSearchChip(kind, input.value);
+        input.value = '';
+      } else if (event.key === 'Backspace' && !input.value && searchDraft[kind].length) {
+        removeSearchChip(kind, searchDraft[kind].length - 1);
+      }
+    }
+
+    function toggleWorkType(type) {
+      const at = searchDraft.work_types.indexOf(type);
+      if (at >= 0) searchDraft.work_types.splice(at, 1);
+      else searchDraft.work_types.push(type);
+      renderWorkTypes();
+    }
+
+    function renderWorkTypes() {
+      ['onsite', 'hybrid', 'remote'].forEach(type => {
+        const btn = document.getElementById(`worktype-${type}`);
+        const on = searchDraft.work_types.includes(type);
+        btn.setAttribute('aria-pressed', on);
+        btn.classList.toggle('bg-gray-800', on);
+        btn.classList.toggle('text-white', on);
+        btn.classList.toggle('border-gray-800', on);
+        btn.classList.toggle('bg-white', !on);
+        btn.classList.toggle('text-gray-700', !on);
+        btn.classList.toggle('border-gray-300', !on);
+      });
     }
 
     async function saveProfile(fields, message) {
@@ -2630,19 +2978,26 @@
       return true;
     }
 
-    function saveScoutSettings() {
-      const query = document.getElementById('scout-query-input').value.trim();
-      const location = document.getElementById('scout-location-input').value.trim();
-      if (!query || !location) {
-        showToast('Enter a role and a location to search.');
+    async function saveScoutSettings() {
+      // Text still in a box counts, even without pressing Enter
+      ['roles', 'locations', 'keywords'].forEach(kind => {
+        const input = document.getElementById(`chip-input-${kind}`);
+        if (input.value.trim()) addSearchChip(kind, input.value);
+        input.value = '';
+      });
+      if (!searchDraft.roles.length || !searchDraft.locations.length) {
+        showToast('Add at least one role and one location.');
         return;
       }
-      saveProfile({
-        search_query: query,
-        search_location: location,
-        keywords: document.getElementById('scout-keywords-input').value.trim(),
+      const saved = await saveProfile({
+        search_roles: [...searchDraft.roles],
+        search_locations: [...searchDraft.locations],
+        work_types: [...searchDraft.work_types],
+        posted_within: document.getElementById('scout-posted-input').value,
+        keywords: searchDraft.keywords.join(', '),
         daily_enabled: document.getElementById('scout-daily-input').checked,
       }, 'Search saved. The next scout run uses it.');
+      if (saved) renderFilterPills();
     }
 
     function showMorningSummaryMessage(message) {
@@ -2918,6 +3273,7 @@
       initAuth();
       initMasterResume();
       stagedJobs.forEach(unslopDrafts);
+      initFilters();
       renderPastelMatches();
       renderApplicationsTable();
       renderBrowseTable();

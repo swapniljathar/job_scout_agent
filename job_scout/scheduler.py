@@ -42,14 +42,38 @@ def today():
     return datetime.now(_tz()).date()
 
 
+POSTED_WITHIN = {"24h": "past24Hours", "3d": "past3Days", "7d": "pastWeek", "30d": "pastMonth"}
+WORK_TYPES = ("onsite", "hybrid", "remote")
+
+
+def _clean_list(value):
+    return [str(v).strip() for v in value if str(v).strip()] if isinstance(value, list) else []
+
+
+def search_settings(profile):
+    """The user's search with defaults: older profiles only have search_query / search_location."""
+    profile = profile or {}
+    roles = _clean_list(profile.get("search_roles")) or [(profile.get("search_query") or "").strip() or settings.scout_query]
+    locations = _clean_list(profile.get("search_locations")) or [(profile.get("search_location") or "").strip() or settings.scout_location]
+    posted = profile.get("posted_within") if profile.get("posted_within") in POSTED_WITHIN else "7d"
+    return {
+        "search_roles": roles,
+        "search_locations": locations,
+        "work_types": [w for w in _clean_list(profile.get("work_types")) if w in WORK_TYPES],
+        "posted_within": posted,
+        "keywords": profile.get("keywords") or "",
+    }
+
+
 def criteria_for(profile):
     from job_scout.agent import ScoutCriteria
 
-    query = (profile.get("search_query") or "").strip() or settings.scout_query
-    location = (profile.get("search_location") or "").strip() or settings.scout_location
-    keywords = [k.strip() for k in (profile.get("keywords") or "").split(",") if k.strip()]
-    return ScoutCriteria(query=query, location=location, target_roles=[query], must_haves=keywords,
-                         max_jobs=settings.scout_max_jobs)
+    search = search_settings(profile)
+    keywords = [k.strip() for k in search["keywords"].split(",") if k.strip()]
+    return ScoutCriteria(query=search["search_roles"][0], location=search["search_locations"][0],
+                         roles=search["search_roles"], locations=search["search_locations"], work_types=search["work_types"],
+                         time_filter=POSTED_WITHIN[search["posted_within"]], target_roles=search["search_roles"],
+                         must_haves=keywords, max_jobs=settings.scout_max_jobs)
 
 
 class ScoutRunner:

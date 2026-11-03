@@ -17,25 +17,47 @@ APIFY_BASE = "https://api.apify.com/v2"
 # ---------------------------------------------------------
 # 1. LinkedIn Search URL Builder (from n8n 'Build LinkedIn URL')
 # ---------------------------------------------------------
-def build_linkedin_url(query="AI Product Manager", location="Pune, Maharashtra, India", time_filter="pastWeek", remote_filter=None):
+TIME_FILTERS = {  # time_filter -> (LinkedIn f_TPR, days)
+    "past24Hours": ("r86400", 1),
+    "past3Days": ("r259200", 3),
+    "pastWeek": ("r604800", 7),
+    "pastMonth": ("r2592000", 30),
+}
+WORK_TYPE_CODES = {"onsite": "1", "remote": "2", "hybrid": "3"}  # LinkedIn f_WT codes
+
+
+def time_filter_days(time_filter):
+    return TIME_FILTERS.get(time_filter, TIME_FILTERS["pastWeek"])[1]
+
+
+def role_keywords(query):
+    """One role as-is, or several as a LinkedIn boolean search: "Product Manager" OR "Product Owner"."""
+    if isinstance(query, str):
+        return query
+    roles = [r.strip().replace('"', '') for r in query if r and r.strip()]
+    return roles[0] if len(roles) == 1 else " OR ".join(f'"{r}"' for r in roles)
+
+
+def build_linkedin_url(query="AI Product Manager", location="Pune, Maharashtra, India", time_filter="pastWeek", remote_filter=None,
+                       work_types=None):
     """
     Constructs a targeted LinkedIn Jobs public search URL matching n8n workflow.
-    - time_filter options: 'past24Hours' (r86400), 'pastWeek' (r604800), 'pastMonth' (r2592000)
+    - query: one role, or a list of roles (searched together with OR)
+    - time_filter options: 'past24Hours' (r86400), 'past3Days' (r259200), 'pastWeek' (r604800), 'pastMonth' (r2592000)
     - remote_filter options: 'remote' (2), 'hybrid_or_remote' (2,3), 'onsite_or_remote' (1,2, the n8n default), None for any
+    - work_types: list of 'onsite', 'hybrid', 'remote' (overrides remote_filter); empty for any
     - LinkedIn f_WT codes: 1 = on-site, 2 = remote, 3 = hybrid
     """
-    time_map = {
-        "past24Hours": "r86400",
-        "pastWeek": "r604800",
-        "pastMonth": "r2592000"
-    }
-    time_posted_range = time_map.get(time_filter, "r604800")
-    encoded_query = urllib.parse.quote(query)
+    time_posted_range = TIME_FILTERS.get(time_filter, TIME_FILTERS["pastWeek"])[0]
+    encoded_query = urllib.parse.quote(role_keywords(query))
     encoded_location = urllib.parse.quote(location)
 
     url = f"https://www.linkedin.com/jobs/search/?keywords={encoded_query}&location={encoded_location}&f_TPR={time_posted_range}&sortBy=DD"
 
-    if remote_filter == "remote":
+    codes = sorted({WORK_TYPE_CODES[w] for w in (work_types or []) if w in WORK_TYPE_CODES})
+    if codes:
+        url += "&f_WT=" + "%2C".join(codes)
+    elif remote_filter == "remote":
         url += "&f_WT=2"
     elif remote_filter == "hybrid_or_remote":
         url += "&f_WT=2%2C3"
@@ -103,6 +125,7 @@ def _fetch_apify_dataset_items(dataset_id, token):
 def run_apify_async(search_url, token=None, actor_id=None, max_items=10, status_callback=None):
     """
     Runs the Apify actor asynchronously and polls until SUCCEEDED.
+    `search_url` is one LinkedIn search URL or a list of them (one crawler run either way).
     Returns (raw_items, error).
     """
     token = token or settings.apify_token
@@ -113,7 +136,7 @@ def run_apify_async(search_url, token=None, actor_id=None, max_items=10, status_
     headers = {"Content-Type": "application/json"}
     start_url = f"{APIFY_BASE}/acts/{actor_id}/runs?token={token}"
     payload = {
-        "urls": [search_url],
+        "urls": search_url if isinstance(search_url, list) else [search_url],
         "scrapeCompany": False,
         "count": max_items
     }
@@ -185,6 +208,7 @@ def parse_apify_jobs(raw_items, max_days=3, max_limit=100):
             "employmentType": item.get("employmentType") or "Full-time",
             "seniorityLevel": item.get("seniorityLevel") or "Mid-Senior level",
             "jobLink": job_link,
+            "applyUrl": item.get("applyUrl") or "",
             "jobDescription": job_description
         })
 
@@ -195,10 +219,15 @@ def parse_apify_jobs(raw_items, max_days=3, max_limit=100):
     return jobs
 
 
-def scrape_linkedin_jobs(query, location, time_filter="pastWeek", remote_filter=None, max_items=10, max_days=7, status_callback=None):
-    """End-to-end: build URL → run crawler → normalize. Returns (jobs, error)."""
-    search_url = build_linkedin_url(query, location, time_filter, remote_filter)
-    raw_items, err = run_apify_async(search_url, max_items=max_items, status_callback=status_callback)
+def scrape_linkedin_jobs(query, location, time_filter="pastWeek", remote_filter=None, max_items=10, max_days=7, status_callback=None,
+                         work_types=None):
+    """
+    End-to-end: build URL(s) → run crawler → normalize. Returns (jobs, error).
+    `query` and `location` may be lists: all roles go into one search per location.
+    """
+    locations = [location] if isinstance(location, str) else [loc for loc in location if loc]
+    search_urls = [build_linkedin_url(query, loc, time_filter, remote_filter, work_types) for loc in locations]
+    raw_items, err = run_apify_async(search_urls, max_items=max_items, status_callback=status_callback)
     if err:
         return [], err
     return parse_apify_jobs(raw_items, max_days=max_days, max_limit=max_items), None

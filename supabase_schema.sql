@@ -25,6 +25,7 @@ ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS cover_letter TEXT;
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS status TEXT;
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ;
 ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS apply_url TEXT;  -- company application link (shows the ATS, e.g. Greenhouse)
 
 -- 3. Review status: new -> reviewed -> applied (or skipped)
 UPDATE public.jobs SET status = 'new' WHERE status IS NULL OR status NOT IN ('new', 'reviewed', 'applied', 'skipped');
@@ -61,6 +62,11 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+-- Search filters: several roles and locations, work type (onsite / hybrid / remote) and posting age (24h / 3d / 7d / 30d)
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS search_roles JSONB;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS search_locations JSONB;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS work_types JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS posted_within TEXT DEFAULT '7d';
 
 -- 6. Lock both tables: resumes contain phone numbers and emails.
 --    Only the server's secret key (sb_secret_...) can read or write; it bypasses RLS.

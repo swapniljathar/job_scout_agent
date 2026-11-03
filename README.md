@@ -239,8 +239,10 @@ Job Scout Agent is engineered from the ground up to protect your sensitive perso
 (default 06:30 Asia/Kolkata). If the VM was off at that time, the runs start as soon as the server is back that day.
 
 **Multi-user.** Anyone can sign up with email and password (set `ALLOWED_EMAILS` to limit it to a list). Each user
-gets a private space: they upload their own resume on **My Resume**, set the role, location and keywords on
-**This Morning's Scout**, and only ever see their own jobs and drafts. Every morning the server runs the scout once
+gets a private space: they upload their own resume on **My Resume**, set up to 5 roles, 3 locations, work type
+(on-site / hybrid / remote), posting age and keywords on **This Morning's Scout**, and only ever see their own jobs
+and drafts. The Location / Freshness / Title / ATS / Source pills narrow the jobs shown (ATS is read from each
+job's application link). Every morning the server runs the scout once
 per user, one after another. **Run scout now** is limited to `SCOUT_MANUAL_RUNS_PER_DAY` per user, because every
 run spends the server owner's Apify and Gemini credits. Review each job in the drawer, then **Approve**,
 **Mark applied** or **Skip**; decisions are saved to Supabase.
