@@ -146,6 +146,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return None
         return profile_payload(user, profile)
 
+    def _discard_body(self):
+        """Reads an unwanted upload so the browser sees the error response instead of a reset connection."""
+        length = min(int(self.headers.get('Content-Length') or 0), settings.max_resume_bytes)
+        while length > 0:
+            chunk = self.rfile.read(min(length, 65536))
+            if not chunk:
+                break
+            length -= len(chunk)
+
     def _read_json(self, limit=1024 * 1024):
         length = int(self.headers.get('Content-Length') or 0)
         if length > limit:
@@ -204,6 +213,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "Not found"})
             return
         if not self._require_login():
+            self._discard_body()
             return
 
         length = int(self.headers.get('Content-Length') or 0)

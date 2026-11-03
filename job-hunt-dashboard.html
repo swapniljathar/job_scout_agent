@@ -1857,10 +1857,14 @@
     }
 
     async function postResumeParse(body, query, contentType) {
-      const headers = { 'Content-Type': contentType };
       const token = await getAccessToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
-      const res = await fetch('/api/resume/parse' + query, { method: 'POST', headers, body });
+      if (!token) throw new Error('Sign in with your email and password first, then upload your resume again.');
+      let res;
+      try {
+        res = await fetch('/api/resume/parse' + query, { method: 'POST', headers: { 'Content-Type': contentType, Authorization: `Bearer ${token}` }, body });
+      } catch (err) {
+        throw new Error('Could not reach the Job Scout server. Check your connection and try again.');
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Parser returned HTTP ${res.status}`);
       return data;
@@ -1876,7 +1880,7 @@
         if (/\.(md|txt)$/i.test(file.name)) {
           applyParsedResume(await file.text(), `Loaded ${file.name} (${file.size} bytes) as Master Resume!`);
         } else {
-          showToast(`Could not parse ${file.name}: ${err.message}. Run "python main.py serve" for PDF/DOCX parsing.`);
+          showToast(`Could not parse ${file.name}: ${err.message}`);
         }
       }
     }
