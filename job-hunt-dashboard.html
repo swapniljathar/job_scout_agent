@@ -2860,7 +2860,8 @@
       data.jobs.filter(row => row.status !== 'skipped').forEach((row, idx) => stagedJobs.push(toDashboardJob(row, idx)));
       await loadProfile();
       refreshJobViews();
-      refreshScoutStatus();
+      if (autoScoutChecked) refreshScoutStatus();
+      else autoScout();
     }
 
     // Each user's master resume and search live in their server-side profile
@@ -3036,11 +3037,11 @@
       const last = status.last_run;
       const parts = [];
       if (!last) parts.push('No scout run yet');
-      else if (last.error) parts.push(`Last run ${shortTime(last.started_at)} (${last.trigger === 'schedule' ? 'scheduled' : 'manual'}) failed: ${last.error}`);
-      else parts.push(`Last run ${shortTime(last.started_at)} (${last.trigger === 'schedule' ? 'scheduled' : 'manual'}) added ${last.new_jobs} job${last.new_jobs === 1 ? '' : 's'}`);
+      else if (last.error) parts.push(`Last run ${shortTime(last.started_at)} (${RUN_TRIGGERS[last.trigger] || 'manual'}) failed: ${last.error}`);
+      else parts.push(`Last run ${shortTime(last.started_at)} (${RUN_TRIGGERS[last.trigger] || 'manual'}) added ${last.new_jobs} job${last.new_jobs === 1 ? '' : 's'}`);
       if (status.next_run && profile && profile.daily_enabled) parts.push(`next run ${shortTime(status.next_run)}`);
       if (typeof status.manual_runs_left === 'number' && profile) profile.manual_runs_left = status.manual_runs_left;
-      if (profile) parts.push(`${profile.manual_runs_left} manual run${profile.manual_runs_left === 1 ? '' : 's'} left today`);
+      if (profile) parts.push(`${profile.manual_runs_left} search${profile.manual_runs_left === 1 ? '' : 'es'} left today`);
       document.getElementById('morning-summary-meta').innerText = parts.join(' · ');
       if (status.schedule) document.getElementById('scout-daily-label').innerText = `Daily run at ${status.schedule.split(' ')[0]}`;
 
@@ -3080,6 +3081,25 @@
       const last = status.last_run || {};
       showToast(last.error ? `Scout run failed: ${last.error}` : `Scout run finished: ${last.new_jobs} new job${last.new_jobs === 1 ? '' : 's'}`);
       loadLiveJobs();
+    }
+
+    const RUN_TRIGGERS = { schedule: 'scheduled', manual: 'manual', auto: 'automatic' };
+    let autoScoutChecked = false;
+
+    // Opening or refreshing the dashboard: the server starts a new search if this user's last one is old enough
+    async function autoScout() {
+      if (autoScoutChecked) return;
+      autoScoutChecked = true;
+      let result;
+      try {
+        result = await apiFetch('/api/scout/auto', { method: 'POST' });
+      } catch (err) {
+        return;
+      }
+      renderScoutStatus(result);
+      if (!result.started) return;
+      showToast('Searching LinkedIn for new jobs. They appear here in a few minutes.');
+      if (!scoutPollTimer) scoutPollTimer = setInterval(pollScoutRun, 4000);
     }
 
     async function runScoutNow() {

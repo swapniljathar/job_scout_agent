@@ -57,8 +57,11 @@ class Settings:
     scout_query: str = os.getenv("SCOUT_QUERY", "AI Product Manager")
     scout_location: str = os.getenv("SCOUT_LOCATION", "Pune, Maharashtra, India")
     scout_max_jobs: int = int(os.getenv("SCOUT_MAX_JOBS", "5"))
-    # Each run spends the server's Apify and Gemini credits, so "Run scout now" is limited per user per day
-    scout_manual_runs_per_day: int = int(os.getenv("SCOUT_MANUAL_RUNS_PER_DAY", "3"))
+    # Each run spends the server's Apify and Gemini credits, so dashboard searches ("Run scout now" plus the
+    # automatic search when the dashboard opens) are limited per user per day
+    scout_manual_runs_per_day: int = int(os.getenv("SCOUT_MANUAL_RUNS_PER_DAY", "6"))
+    # Opening or refreshing the dashboard starts a search when the user's last one is older than this (0 = never)
+    scout_auto_refresh_minutes: int = int(os.getenv("SCOUT_AUTO_REFRESH_MINUTES", "120"))
 
 
 settings = Settings()

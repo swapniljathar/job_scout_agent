@@ -243,8 +243,10 @@ gets a private space: they upload their own resume on **My Resume**, set up to 5
 (on-site / hybrid / remote), posting age and keywords on **This Morning's Scout**, and only ever see their own jobs
 and drafts. The Location / Freshness / Title / ATS / Source pills narrow the jobs shown (ATS is read from each
 job's application link). Every morning the server runs the scout once
-per user, one after another. **Run scout now** is limited to `SCOUT_MANUAL_RUNS_PER_DAY` per user, because every
-run spends the server owner's Apify and Gemini credits. Review each job in the drawer, then **Approve**,
+per user, one after another. Opening or refreshing the dashboard also starts a new search when that user's last
+one is older than `SCOUT_AUTO_REFRESH_MINUTES` (default 120). These automatic searches and **Run scout now** share
+a limit of `SCOUT_MANUAL_RUNS_PER_DAY` (default 6) per user, because every run spends the server owner's Apify and
+Gemini credits. Review each job in the drawer, then **Approve**,
 **Mark applied** or **Skip**; decisions are saved to Supabase.
 
 1. Run `supabase_schema.sql` in the Supabase SQL Editor (adds `profiles`, per-user jobs and locks both tables).

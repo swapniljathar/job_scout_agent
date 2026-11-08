@@ -17,6 +17,8 @@ Every user sees and changes only their own profile and jobs:
   POST /api/jobs/<id>            {"status": "reviewed|applied|skipped|new", "tailored_resume"?, "cover_letter"?}
   GET  /api/scout/status         → the user's running/queued run, last run, next scheduled run, recent log lines
   POST /api/scout/run            → queues a run now (400 without a resume, 409 if already queued, 429 over the daily limit)
+  POST /api/scout/auto           → on dashboard open: queues a run if the last one is older than SCOUT_AUTO_REFRESH_MINUTES
+                                   → {"started": bool, "reason"?: "disabled|no_resume|recent|limit|running"}
 """
 import json
 import logging
@@ -24,6 +26,7 @@ import re
 import threading
 import time
 import urllib.parse
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import requests
@@ -227,6 +230,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if user:
                 self._start_run(user)
             return
+        if parsed_url.path == '/api/scout/auto':
+            user = self._require_login()
+            if user:
+                self._auto_run(user)
+            return
         if parsed_url.path == '/api/profile':
             user = self._require_login()
             if user:
@@ -283,15 +291,45 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "Add your master resume on the My Resume tab first."})
             return
         if profile["manual_runs_left"] <= 0:
-            self._send_json(429, {"error": f"You've used today's {settings.scout_manual_runs_per_day} manual runs. "
+            self._send_json(429, {"error": f"You've used today's {settings.scout_manual_runs_per_day} searches. "
                                            "The daily run still adds new jobs every morning."})
             return
         if not runner.start(user["id"], "manual"):
             self._send_json(409, {"error": "Your scout run is already in progress."})
             return
+        self._send_json(202, self._count_run(user, profile))
+
+    def _count_run(self, user, profile):
+        """Counts a dashboard search toward today's limit; returns the status to send back."""
         save_profile(user["id"], {"email": user["email"], "manual_runs_date": today().isoformat(),
                                   "manual_runs_count": profile["_used"] + 1})
-        self._send_json(202, dict(runner.status(user["id"]), manual_runs_left=profile["manual_runs_left"] - 1))
+        return dict(runner.status(user["id"]), manual_runs_left=profile["manual_runs_left"] - 1)
+
+    def _auto_run(self, user):
+        """Opening or refreshing the dashboard: search again when the user's last search is old enough."""
+        minutes = settings.scout_auto_refresh_minutes
+        if minutes <= 0:
+            self._send_json(200, {"started": False, "reason": "disabled"})
+            return
+        profile = self._load_profile(user)
+        if not profile:
+            return
+        status = runner.status(user["id"])
+        last = (status["last_run"] or {}).get("started_at")
+        if status["running"] or status["queued"]:
+            reason = "running"
+        elif not profile["master_resume"].strip():
+            reason = "no_resume"
+        elif last and datetime.fromisoformat(last) > datetime.now(timezone.utc) - timedelta(minutes=minutes):
+            reason = "recent"
+        elif profile["manual_runs_left"] <= 0:
+            reason = "limit"
+        elif not runner.start(user["id"], "auto"):
+            reason = "running"
+        else:
+            self._send_json(202, dict(self._count_run(user, profile), started=True))
+            return
+        self._send_json(200, dict(status, started=False, reason=reason, manual_runs_left=profile["manual_runs_left"]))
 
     def _save_profile(self, user):
         try:
